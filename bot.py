@@ -56,7 +56,20 @@ def load_data():
     os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
     if os.path.exists(DATA_PATH):
         with open(DATA_PATH, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+            data.setdefault("users", {})
+            data.setdefault("current_spawn", None)
+            data.setdefault("last_spawn", None)
+            for uid, user in data["users"].items():
+                user.setdefault("pokemon", [])
+                user.setdefault("levels", {})
+                user.setdefault("has_starter", False)
+                user.setdefault("catches_without_starter", 0)
+                for p in user["pokemon"]:
+                    p.setdefault("shiny", False)
+                    p.setdefault("nickname", None)
+                    p.setdefault("level", 1)
+            return data
     return {"users": {}, "current_spawn": None, "last_spawn": None}
 
 def save_data(data):
@@ -157,7 +170,9 @@ async def on_message(message):
             "name": name,
             "dex": dex,
             "caught_at": datetime.utcnow().isoformat(),
-            "level": 1
+            "level": 1,
+            "shiny": False,
+            "nickname": None
         })
 
         if name not in user["levels"]:
@@ -233,7 +248,9 @@ async def starter(ctx):
         "name": name,
         "dex": dex,
         "caught_at": datetime.utcnow().isoformat(),
-        "level": 1
+        "level": 1,
+        "shiny": False,
+        "nickname": None
     })
     data["users"][user_id]["levels"][name] = 1
     data["users"][user_id]["has_starter"] = True
