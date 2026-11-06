@@ -3,7 +3,6 @@ from discord.ext import commands
 import json
 import os
 
-# Simple Gen 1 evolution lines (base → middle → final)
 EVOLUTIONS = {
     "Bulbasaur": ("Ivysaur", 100),
     "Ivysaur": ("Venusaur", 100),
@@ -70,7 +69,7 @@ EVOLUTIONS = {
     "Goldeen": ("Seaking", 100),
     "Staryu": ("Starmie", 100),
     "Magikarp": ("Gyarados", 100),
-    "Eevee": ("Vaporeon", 100),  # simplified, just one path for now
+    "Eevee": ("Vaporeon", 100),
     "Omanyte": ("Omastar", 100),
     "Kabuto": ("Kabutops", 100),
     "Dratini": ("Dragonair", 100),
@@ -97,7 +96,6 @@ class Evolve(commands.Cog):
 
     @commands.command()
     async def grind(self, ctx, *, name: str = None):
-        """Pick which Pokémon you're grinding"""
         if not name:
             await ctx.send("Usage: `!grind <pokemon>`")
             return
@@ -144,15 +142,22 @@ class Evolve(commands.Cog):
         user["xp"][grinding] = user["xp"].get(grinding, 0) + 1
         xp = user["xp"][grinding]
 
-        # Check for evolution
+        # Level up every 20 XP
+        level_xp = 20
+        current_level = user.get("levels", {}).get(grinding, 1)
+        new_level = (xp // level_xp) + 1
+        if new_level > current_level:
+            user.setdefault("levels", {})
+            user["levels"][grinding] = new_level
+            await message.channel.send(f"**{message.author.display_name}**'s **{grinding}** grew to level **{new_level}**!")
+
+        # Evolution at 100 XP
         if grinding in EVOLUTIONS:
             evo_name, needed = EVOLUTIONS[grinding]
             if xp >= needed:
-                # Evolve
                 for p in user["pokemon"]:
                     if p["name"] == grinding:
                         p["name"] = evo_name
-                        # Update levels dict key
                         if grinding in user.get("levels", {}):
                             user["levels"][evo_name] = user["levels"].pop(grinding)
                         user["xp"][evo_name] = 0
@@ -164,7 +169,6 @@ class Evolve(commands.Cog):
                 await message.channel.send(f"🎉 **{message.author.display_name}**'s **{grinding}** evolved into **{evo_name}**!")
                 return
 
-        # Save XP progress every message (or you can save less often)
         if xp % 10 == 0:
             self.save_data(data)
 
