@@ -8,12 +8,15 @@ from datetime import datetime, timedelta
 TOKEN = os.getenv("DISCORD_TOKEN")
 SPAWN_CHANNEL_ID = int(os.getenv("SPAWN_CHANNEL_ID", "0"))
 DATA_PATH = os.getenv("DATA_PATH", "/data/pokelarp_data.json")
-MIN_SPAWN_MINUTES = 30
-MAX_SPAWN_MINUTES = 120
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# Spawn rate (can be changed with !spawnrate)
+bot.MIN_SPAWN_MINUTES = 30
+bot.MAX_SPAWN_MINUTES = 120
+SHINY_CHANCE = 0.01
 
 POKEMON = [
     "Bulbasaur", "Ivysaur", "Venusaur", "Charmander", "Charmeleon", "Charizard",
@@ -43,13 +46,29 @@ POKEMON = [
     "Zapdos", "Moltres", "Dratini", "Dragonair", "Dragonite", "Mewtwo", "Mew"
 ]
 
+# Rarity weights (higher = more common)
+RARITY = {
+    "default": 100,
+    "Pikachu": 40, "Eevee": 40, "Growlithe": 40, "Vulpix": 40,
+    "Abra": 35, "Machop": 35, "Gastly": 35,
+    "Dratini": 15, "Lapras": 15, "Snorlax": 10,
+    "Articuno": 3, "Zapdos": 3, "Moltres": 3, "Mewtwo": 2, "Mew": 1,
+}
+
 STARTERS = {
     "1": {"name": "Bulbasaur", "dex": 1},
     "2": {"name": "Charmander", "dex": 4},
     "3": {"name": "Squirtle", "dex": 7}
 }
 
-def get_sprite(dex_num):
+def get_weighted_pokemon():
+    weights = [RARITY.get(name, RARITY["default"]) for name in POKEMON]
+    dex = random.choices(range(1, 152), weights=weights, k=1)[0]
+    return dex, POKEMON[dex - 1]
+
+def get_sprite(dex_num, shiny=False):
+    if shiny:
+        return f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/shiny/{dex_num}.png"
     return f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{dex_num}.png"
 
 def load_data():
@@ -105,7 +124,7 @@ async def spawn_loop():
     last = data.get("last_spawn")
     if last:
         last_dt = datetime.fromisoformat(last)
-        wait = timedelta(minutes=random.randint(MIN_SPAWN_MINUTES, MAX_SPAWN_MINUTES))
+        wait = timedelta(minutes=random.randint(bot.MIN_SPAWN_MINUTES, bot.MAX_SPAWN_MINUTES))
         if now < last_dt + wait:
             return
 
@@ -113,27 +132,29 @@ async def spawn_loop():
     if not channel:
         return
 
-    dex = random.randint(1, 151)
-    name = POKEMON[dex - 1]
-    sprite = get_sprite(dex)
+    dex, name = get_weighted_pokemon()
+    shiny = random.random() < SHINY_CHANCE
+    sprite = get_sprite(dex, shiny)
 
     current_spawn = {
         "name": name,
         "dex": dex,
         "sprite": sprite,
+        "shiny": shiny,
         "spawned_at": now.isoformat()
     }
     data["current_spawn"] = current_spawn
     data["last_spawn"] = now.isoformat()
     save_data(data)
 
+    title = f"✨ A wild shiny {name} appeared!" if shiny else f"A wild {name} appeared!"
     embed = discord.Embed(
-        title=f"A wild {name} appeared!",
+        title=title,
         description="Type **catch** to catch it!",
-        color=0xFF69B4
+        color=0xFFD700 if shiny else 0xFF69B4
     )
     embed.set_image(url=sprite)
-    embed.set_footer(text="Pokelarp • Gen 1")
+    embed.set_footer(text="Pokelarp • Gen 1" + (" • SHINY" if shiny else ""))
     await channel.send(embed=embed)
 
 @bot.event
@@ -165,13 +186,14 @@ async def on_message(message):
 
         name = current_spawn["name"]
         dex = current_spawn["dex"]
+        shiny = current_spawn.get("shiny", False)
 
         user["pokemon"].append({
             "name": name,
             "dex": dex,
             "caught_at": datetime.utcnow().isoformat(),
             "level": 1,
-            "shiny": False,
+            "shiny": shiny,
             "nickname": None
         })
 
@@ -185,8 +207,9 @@ async def on_message(message):
         if not user.get("has_starter", False):
             user["catches_without_starter"] = user.get("catches_without_starter", 0) + 1
 
+        shiny_text = "✨ **SHINY** " if shiny else ""
         reply = (
-            f"🎉 **{message.author.display_name}** caught a **{name}**!\n"
+            f"🎉 **{message.author.display_name}** caught a {shiny_text}**{name}**!\n"
             f"Your {name} is now level **{level}**!"
         )
 
@@ -277,16 +300,17 @@ async def spawn(ctx):
         return
 
     channel = bot.get_channel(SPAWN_CHANNEL_ID)
-    dex = random.randint(1, 151)
-    name = POKEMON[dex - 1]
-    sprite = get_sprite(dex)
+    dex, name = get_weighted_pokemon()
+    shiny = random.random() < SHINY_CHANCE
+    sprite = get_sprite(dex, shiny)
 
-    current_spawn = {"name": name, "dex": dex, "sprite": sprite}
+    current_spawn = {"name": name, "dex": dex, "sprite": sprite, "shiny": shiny}
     data["current_spawn"] = current_spawn
     data["last_spawn"] = datetime.utcnow().isoformat()
     save_data(data)
 
-    embed = discord.Embed(title=f"A wild {name} appeared!", description="Type **catch** to catch it!", color=0xFF69B4)
+    title = f"✨ A wild shiny {name} appeared!" if shiny else f"A wild {name} appeared!"
+    embed = discord.Embed(title=title, description="Type **catch** to catch it!", color=0xFFD700 if shiny else 0xFF69B4)
     embed.set_image(url=sprite)
     await channel.send(embed=embed)
     await ctx.send("Spawned!")
