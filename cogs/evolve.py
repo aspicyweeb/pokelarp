@@ -123,6 +123,15 @@ class Evolve(commands.Cog):
         self.save_data(data)
         await ctx.send(f"Now grinding **{user['grinding']}**. Every message you send gives it XP!")
 
+    @commands.command()
+    async def xp(self, ctx):
+        data = self.load_data()
+        user = data["users"].get(str(ctx.author.id), {})
+        grinding = user.get("grinding", "None")
+        xp = user.get("xp", {}).get(grinding, 0)
+        level = user.get("levels", {}).get(grinding, 1)
+        await ctx.send(f"Grinding: **{grinding}** | Level: **{level}** | XP: **{xp}**/100")
+
     @commands.Cog.listener()
     async def on_message(self, message):
         if message.author.bot or not message.guild:
@@ -130,7 +139,7 @@ class Evolve(commands.Cog):
 
         data = self.load_data()
         user_id = str(message.author.id)
-        if user_id not in data["users"]:
+        if user_id not in data.get("users", {}):
             return
 
         user = data["users"][user_id]
@@ -143,34 +152,31 @@ class Evolve(commands.Cog):
         xp = user["xp"][grinding]
 
         # Level up every 20 XP
-        level_xp = 20
         current_level = user.get("levels", {}).get(grinding, 1)
-        new_level = (xp // level_xp) + 1
+        new_level = (xp // 20) + 1
         if new_level > current_level:
             user.setdefault("levels", {})
             user["levels"][grinding] = new_level
             await message.channel.send(f"**{message.author.display_name}**'s **{grinding}** grew to level **{new_level}**!")
 
-        # Evolution at 100 XP
+        # Evolution at 100
         if grinding in EVOLUTIONS:
             evo_name, needed = EVOLUTIONS[grinding]
             if xp >= needed:
                 for p in user["pokemon"]:
                     if p["name"] == grinding:
+                        old = p["name"]
                         p["name"] = evo_name
-                        if grinding in user.get("levels", {}):
-                            user["levels"][evo_name] = user["levels"].pop(grinding)
+                        if old in user.get("levels", {}):
+                            user["levels"][evo_name] = user["levels"].pop(old)
                         user["xp"][evo_name] = 0
-                        if "grinding" in user:
-                            user["grinding"] = evo_name
+                        user["grinding"] = evo_name
                         break
-
                 self.save_data(data)
                 await message.channel.send(f"🎉 **{message.author.display_name}**'s **{grinding}** evolved into **{evo_name}**!")
                 return
 
-        if xp % 10 == 0:
-            self.save_data(data)
+        self.save_data(data)
 
 async def setup(bot):
     await bot.add_cog(Evolve(bot))
