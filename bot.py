@@ -5,13 +5,11 @@ import random
 import json
 from datetime import datetime, timedelta
 
-# ============ CONFIG (Railway env vars) ============
 TOKEN = os.getenv("DISCORD_TOKEN")
 SPAWN_CHANNEL_ID = int(os.getenv("SPAWN_CHANNEL_ID", "0"))
 DATA_PATH = os.getenv("DATA_PATH", "/data/pokelarp_data.json")
 MIN_SPAWN_MINUTES = 30
-MAX_SPAWN_MINUTES = 120  # 2 hours
-# ===================================================
+MAX_SPAWN_MINUTES = 120
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -69,9 +67,19 @@ def save_data(data):
 data = load_data()
 current_spawn = data.get("current_spawn")
 
+async def load_cogs():
+    for filename in os.listdir("./cogs"):
+        if filename.endswith(".py") and filename != "__init__.py":
+            try:
+                await bot.load_extension(f"cogs.{filename[:-3]}")
+                print(f"Loaded cog: {filename}")
+            except Exception as e:
+                print(f"Failed to load {filename}: {e}")
+
 @bot.event
 async def on_ready():
     print(f"Pokelarp is online as {bot.user}")
+    await load_cogs()
     spawn_loop.start()
 
 @tasks.loop(minutes=1)
@@ -135,7 +143,6 @@ async def on_message(message):
 
         user = data["users"][user_id]
 
-        # Force starter after 2 catches without one
         if not user.get("has_starter", False) and user.get("catches_without_starter", 0) >= 2:
             await message.channel.send(
                 f"**{message.author.display_name}**, you need to pick a starter first!\n"
@@ -160,7 +167,6 @@ async def on_message(message):
 
         level = user["levels"][name]
 
-        # Track catches if they still don't have a starter
         if not user.get("has_starter", False):
             user["catches_without_starter"] = user.get("catches_without_starter", 0) + 1
 
@@ -186,7 +192,6 @@ async def on_message(message):
 
 @bot.command()
 async def starter(ctx):
-    """Pick your starter Pokémon (once)"""
     user_id = str(ctx.author.id)
     if user_id not in data["users"]:
         data["users"][user_id] = {
@@ -261,6 +266,10 @@ async def bag(ctx):
 
 @bot.command()
 async def spawn(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        await ctx.send("Only admins can force a spawn.")
+        return
+
     global current_spawn
     if current_spawn:
         await ctx.send("There's already a Pokémon spawned!")
