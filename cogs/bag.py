@@ -19,7 +19,31 @@ class Bag(commands.Cog):
             return f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/shiny/{dex_num}.png"
         return f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{dex_num}.png"
 
-    @commands.command(name="info")
+    @commands.command()
+    async def bag(self, ctx):
+        data = self.load_data()
+        user_id = str(ctx.author.id)
+        if user_id not in data["users"] or not data["users"][user_id].get("pokemon"):
+            await ctx.send("You haven't caught any Pokémon yet! Try `!starter`")
+            return
+
+        user = data["users"][user_id]
+        lines = []
+        seen = {}
+        for p in user["pokemon"]:
+            key = p["name"]
+            if key not in seen:
+                level = user.get("levels", {}).get(key, 1)
+                shiny = "✨ " if p.get("shiny") else ""
+                nick = f" ({p['nickname']})" if p.get("nickname") else ""
+                lines.append(f"{shiny}**{key}**{nick} — Lv.{level}")
+                seen[key] = True
+
+        text = "\n".join(lines) if lines else "None"
+        embed = discord.Embed(title=f"{ctx.author.display_name}'s Pokémon", description=text, color=0xFF69B4)
+        await ctx.send(embed=embed)
+
+    @commands.command()
     async def info(self, ctx, *, name: str = None):
         if not name:
             await ctx.send("Usage: `!info <pokemon>`")
