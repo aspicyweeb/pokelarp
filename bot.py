@@ -249,22 +249,6 @@ async def starter(ctx):
     await ctx.send(embed=embed)
 
 @bot.command()
-async def bag(ctx):
-    user_id = str(ctx.author.id)
-    if user_id not in data["users"] or not data["users"][user_id]["pokemon"]:
-        await ctx.send("You haven't caught any Pokémon yet! Try `!starter`")
-        return
-
-    pokemon_list = data["users"][user_id]["pokemon"]
-    unique = {}
-    for p in pokemon_list:
-        unique[p["name"]] = unique.get(p["name"], 0) + 1
-
-    text = "\n".join([f"**{name}** x{count}" for name, count in sorted(unique.items())])
-    embed = discord.Embed(title=f"{ctx.author.display_name}'s Pokémon", description=text or "None", color=0xFF69B4)
-    await ctx.send(embed=embed)
-
-@bot.command()
 async def spawn(ctx):
     if not ctx.author.guild_permissions.administrator:
         await ctx.send("Only admins can force a spawn.")
