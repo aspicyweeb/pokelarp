@@ -17,6 +17,7 @@ SPAWN_CHANNELS = {
     1540133768730509352: {"min": 30, "max": 120},
 }
 
+BOT_CHANNEL_ID = 1568206877286735872
 SHINY_CHANCE = 0.01
 
 POKEMON = [
@@ -159,6 +160,27 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    # XP gain in every channel
+    if message.guild:
+        fresh = load_data()
+        user_id = str(message.author.id)
+        if user_id in fresh.get("users", {}):
+            user = fresh["users"][user_id]
+            grinding = user.get("grinding")
+            if grinding:
+                user.setdefault("xp", {})
+                user.setdefault("levels", {})
+                user["xp"][grinding] = user["xp"].get(grinding, 0) + 1
+                xp = user["xp"][grinding]
+                calculated_level = (xp // 20) + 1
+                old_level = user["levels"].get(grinding, 1)
+                if calculated_level > old_level:
+                    user["levels"][grinding] = calculated_level
+                    bot_channel = bot.get_channel(BOT_CHANNEL_ID)
+                    if bot_channel:
+                        await bot_channel.send(f"**{message.author.display_name}**'s **{grinding}** grew to level **{calculated_level}**!")
+                save_data(fresh)
+
     content = message.content.lower().strip()
 
     if content == "catch" and current_spawn:
@@ -203,24 +225,20 @@ async def on_message(message):
             "nickname": None
         })
 
-        if name not in user["levels"]:
-            user["levels"][name] = 1
-        else:
-            user["levels"][name] += 1
+        if name not in user.get("levels", {}):
+            user.setdefault("levels", {})[name] = 1
 
-        level = user["levels"][name]
+        level = user["levels"].get(name, 1)
         count = sum(1 for p in user["pokemon"] if p["name"] == name)
 
         if not user.get("has_starter", False):
             user["catches_without_starter"] = user.get("catches_without_starter", 0) + 1
 
-        # Coins
         coins = 10 if name in RARE_POKEMON else 5
         if shiny:
             coins *= 2
         user["coins"] += coins
 
-        # Late catch window
         shop_cog = bot.get_cog("Shop")
         if shop_cog:
             shop_cog.add_late_catch(message.channel.id, {
@@ -310,7 +328,7 @@ async def starter(ctx):
         "shiny": False,
         "nickname": None
     })
-    data["users"][user_id]["levels"][name] = 1
+    data["users"][user_id].setdefault("levels", {})[name] = 1
     data["users"][user_id]["has_starter"] = True
     save_data(data)
 
