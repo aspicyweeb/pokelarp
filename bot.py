@@ -374,4 +374,10 @@ async def spawn(ctx):
     await channel.send(embed=embed)
     await ctx.send("Spawned!")
 
+@bot.command()
+async def coins(ctx):
+    fresh = load_data()
+    user = fresh["users"].get(str(ctx.author.id), {})
+    await ctx.send(f"You have **{user.get('coins', 0)}** coins.")
+
 bot.run(TOKEN)
