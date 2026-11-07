@@ -13,7 +13,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Spawn rate (can be changed with !spawnrate)
 bot.MIN_SPAWN_MINUTES = 30
 bot.MAX_SPAWN_MINUTES = 120
 SHINY_CHANCE = 0.01
@@ -46,7 +45,6 @@ POKEMON = [
     "Zapdos", "Moltres", "Dratini", "Dragonair", "Dragonite", "Mewtwo", "Mew"
 ]
 
-# Rarity weights (higher = more common)
 RARITY = {
     "default": 100,
     "Pikachu": 40, "Eevee": 40, "Growlithe": 40, "Vulpix": 40,
@@ -187,11 +185,17 @@ async def on_message(message):
         name = current_spawn["name"]
         dex = current_spawn["dex"]
         shiny = current_spawn.get("shiny", False)
+        sprite = current_spawn.get("sprite")
+        spawned_at = datetime.fromisoformat(current_spawn.get("spawned_at", datetime.utcnow().isoformat()))
+        catch_time = datetime.utcnow()
+        seconds = (catch_time - spawned_at).total_seconds()
+        mins = int(seconds // 60)
+        secs = round(seconds % 60, 1)
 
         user["pokemon"].append({
             "name": name,
             "dex": dex,
-            "caught_at": datetime.utcnow().isoformat(),
+            "caught_at": catch_time.isoformat(),
             "level": 1,
             "shiny": shiny,
             "nickname": None
@@ -203,24 +207,35 @@ async def on_message(message):
             user["levels"][name] += 1
 
         level = user["levels"][name]
+        count = sum(1 for p in user["pokemon"] if p["name"] == name)
 
         if not user.get("has_starter", False):
             user["catches_without_starter"] = user.get("catches_without_starter", 0) + 1
 
         shiny_text = "✨ **SHINY** " if shiny else ""
-        reply = (
-            f"🎉 **{message.author.display_name}** caught a {shiny_text}**{name}**!\n"
-            f"Your {name} is now level **{level}**!"
+        time_text = f"{mins} minute{'s' if mins != 1 else ''} {secs} seconds" if mins else f"{secs} seconds"
+
+        desc = (
+            f"**{message.author.display_name}** caught {shiny_text}**{name}**!!!!1!\n"
+            f"You now have **{count}** of dat type!!!\n"
+            f"this fella was caught in {time_text}!!!!"
         )
 
         if not user.get("has_starter", False):
             remaining = 2 - user["catches_without_starter"]
             if remaining > 0:
-                reply += f"\n\nYou still need to pick a starter with `!starter` ({remaining} free catch left)."
+                desc += f"\n\nYou still need to pick a starter with `!starter` ({remaining} free catch left)."
             else:
-                reply += "\n\nThat's your last free catch! Use `!starter` before you can catch more."
+                desc += "\n\nThat's your last free catch! Use `!starter` before you can catch more."
 
-        await message.channel.send(reply)
+        embed = discord.Embed(
+            description=desc,
+            color=0xFFD700 if shiny else 0xFF69B4
+        )
+        if sprite:
+            embed.set_thumbnail(url=sprite)
+
+        await message.channel.send(embed=embed)
 
         current_spawn = None
         data["current_spawn"] = None
@@ -304,7 +319,7 @@ async def spawn(ctx):
     shiny = random.random() < SHINY_CHANCE
     sprite = get_sprite(dex, shiny)
 
-    current_spawn = {"name": name, "dex": dex, "sprite": sprite, "shiny": shiny}
+    current_spawn = {"name": name, "dex": dex, "sprite": sprite, "shiny": shiny, "spawned_at": datetime.utcnow().isoformat()}
     data["current_spawn"] = current_spawn
     data["last_spawn"] = datetime.utcnow().isoformat()
     save_data(data)
