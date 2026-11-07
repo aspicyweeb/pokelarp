@@ -13,8 +13,8 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 SPAWN_CHANNELS = {
-    1568206877286735872: {"min": 5, "max": 45},     # bot channel
-    1540133768730509352: {"min": 30, "max": 120},   # sfw gen chat
+    1568206877286735872: {"min": 5, "max": 45},
+    1540133768730509352: {"min": 30, "max": 120},
 }
 
 SHINY_CHANCE = 0.01
@@ -54,6 +54,8 @@ RARITY = {
     "Dratini": 15, "Lapras": 15, "Snorlax": 10,
     "Articuno": 3, "Zapdos": 3, "Moltres": 3, "Mewtwo": 2, "Mew": 1,
 }
+
+RARE_POKEMON = {"Articuno", "Zapdos", "Moltres", "Mewtwo", "Mew", "Dratini", "Lapras", "Snorlax"}
 
 STARTERS = {
     "1": {"name": "Bulbasaur", "dex": 1},
@@ -166,10 +168,14 @@ async def on_message(message):
                 "pokemon": [],
                 "levels": {},
                 "has_starter": False,
-                "catches_without_starter": 0
+                "catches_without_starter": 0,
+                "coins": 0,
+                "inventory": {}
             }
 
         user = data["users"][user_id]
+        user.setdefault("coins", 0)
+        user.setdefault("inventory", {})
 
         if not user.get("has_starter", False) and user.get("catches_without_starter", 0) >= 2:
             await message.channel.send(
@@ -208,13 +214,29 @@ async def on_message(message):
         if not user.get("has_starter", False):
             user["catches_without_starter"] = user.get("catches_without_starter", 0) + 1
 
+        # Coins
+        coins = 10 if name in RARE_POKEMON else 5
+        if shiny:
+            coins *= 2
+        user["coins"] += coins
+
+        # Late catch window
+        shop_cog = bot.get_cog("Shop")
+        if shop_cog:
+            shop_cog.add_late_catch(message.channel.id, {
+                "name": name,
+                "dex": dex,
+                "shiny": shiny
+            })
+
         shiny_text = "✨ **SHINY** " if shiny else ""
         time_text = f"{mins} minute{'s' if mins != 1 else ''} {secs} seconds" if mins else f"{secs} seconds"
 
         desc = (
             f"**{message.author.display_name}** caught {shiny_text}**{name}**!!!!1!\n"
             f"You now have **{count}** of that type!!!\n"
-            f"this cutie was caught in {time_text}!!!!"
+            f"this cutie was caught in {time_text}!!!!\n"
+            f"+{coins} coins"
         )
 
         if not user.get("has_starter", False):
@@ -247,7 +269,9 @@ async def starter(ctx):
             "pokemon": [],
             "levels": {},
             "has_starter": False,
-            "catches_without_starter": 0
+            "catches_without_starter": 0,
+            "coins": 0,
+            "inventory": {}
         }
 
     if data["users"][user_id].get("has_starter", False):
@@ -315,7 +339,14 @@ async def spawn(ctx):
     shiny = random.random() < SHINY_CHANCE
     sprite = get_sprite(dex, shiny)
 
-    current_spawn = {"name": name, "dex": dex, "sprite": sprite, "shiny": shiny, "spawned_at": datetime.utcnow().isoformat(), "channel_id": channel.id}
+    current_spawn = {
+        "name": name,
+        "dex": dex,
+        "sprite": sprite,
+        "shiny": shiny,
+        "spawned_at": datetime.utcnow().isoformat(),
+        "channel_id": channel.id
+    }
     data["current_spawn"] = current_spawn
     save_data(data)
 
