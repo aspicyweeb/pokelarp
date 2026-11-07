@@ -217,8 +217,8 @@ async def on_message(message):
 
         desc = (
             f"**{message.author.display_name}** caught {shiny_text}**{name}**!!!!1!\n"
-            f"You now have **{count}** of dat type!!!\n"
-            f"this fella was caught in {time_text}!!!!"
+            f"You now have **{count}** of that type!!!\n"
+            f"this cutie was caught in {time_text}!!!!"
         )
 
         if not user.get("has_starter", False):
