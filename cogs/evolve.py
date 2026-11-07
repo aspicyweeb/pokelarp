@@ -112,7 +112,7 @@ class Evolve(commands.Cog):
             if p["name"].lower() == name.lower() or (p.get("nickname") and p["nickname"].lower() == name.lower()):
                 user["grinding"] = p["name"]
                 user.setdefault("xp", {})
-                user["xp"][p["name"]] = user["xp"].get(p["name"], 0)
+                user["xp"].setdefault(p["name"], 0)
                 found = True
                 break
 
@@ -127,7 +127,10 @@ class Evolve(commands.Cog):
     async def xp(self, ctx):
         data = self.load_data()
         user = data["users"].get(str(ctx.author.id), {})
-        grinding = user.get("grinding", "None")
+        grinding = user.get("grinding")
+        if not grinding:
+            await ctx.send("You're not grinding anything. Use `!grind <pokemon>`")
+            return
         xp = user.get("xp", {}).get(grinding, 0)
         level = user.get("levels", {}).get(grinding, 1)
         await ctx.send(f"Grinding: **{grinding}** | Level: **{level}** | XP: **{xp}**/100")
@@ -159,7 +162,7 @@ class Evolve(commands.Cog):
             user["levels"][grinding] = new_level
             await message.channel.send(f"**{message.author.display_name}**'s **{grinding}** grew to level **{new_level}**!")
 
-        # Evolution at 100
+        # Evolution
         if grinding in EVOLUTIONS:
             evo_name, needed = EVOLUTIONS[grinding]
             if xp >= needed:
@@ -176,6 +179,7 @@ class Evolve(commands.Cog):
                 await message.channel.send(f"🎉 **{message.author.display_name}**'s **{grinding}** evolved into **{evo_name}**!")
                 return
 
+        # Always save so it sticks
         self.save_data(data)
 
 async def setup(bot):
