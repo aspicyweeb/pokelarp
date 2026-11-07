@@ -1,24 +1,13 @@
 import discord
 from discord.ext import commands
-
-class DismissView(discord.ui.View):
-    def __init__(self, author_id):
-        super().__init__(timeout=120)
-        self.author_id = author_id
-
-    @discord.ui.button(label="Dismiss", style=discord.ButtonStyle.secondary)
-    async def dismiss(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.author_id:
-            await interaction.response.send_message("This isn't your message.", ephemeral=True)
-            return
-        await interaction.message.delete()
+from discord import app_commands
 
 class Help(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(aliases=["commands", "help"])
-    async def cmds(self, ctx):
+    @app_commands.command(name="commands", description="Show all PokéLarp commands")
+    async def commands_slash(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="PokéLarp Commands",
             color=0xFF69B4
@@ -50,10 +39,8 @@ class Help(commands.Cog):
             "`!profile` — your profile\n"
             "`!leaderboard` — top catchers"
         ), inline=False)
-        embed.set_footer(text="Click Dismiss to remove this")
 
-        view = DismissView(ctx.author.id)
-        await ctx.send(embed=embed, view=view)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(Help(bot))
