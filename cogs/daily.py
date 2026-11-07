@@ -4,7 +4,6 @@ import json
 import os
 from datetime import datetime, timedelta
 
-# Commons that can evolve (no starters, no Eeveelutions, no legendaries)
 COMMON_EVOLUTIONS = {
     "Caterpie": "Metapod",
     "Metapod": "Butterfree",
@@ -90,53 +89,55 @@ class Daily(commands.Cog):
 
     @commands.command()
     async def daily(self, ctx, *, name: str = None):
-        if not name:
-            await ctx.send("Usage: `!daily <pokemon>` — evolve one common Pokémon (once per day)")
-            return
-
         data = self.load_data()
         user_id = str(ctx.author.id)
-        if user_id not in data["users"] or not data["users"][user_id].get("pokemon"):
-            await ctx.send("You don't have any Pokémon yet.")
-            return
+        if user_id not in data["users"]:
+            data["users"][user_id] = {
+                "pokemon": [],
+                "levels": {},
+                "has_starter": False,
+                "catches_without_starter": 0,
+                "coins": 0,
+                "inventory": {}
+            }
 
         user = data["users"][user_id]
+        user.setdefault("coins", 0)
+
         last = user.get("last_daily")
         if last:
             last_dt = datetime.fromisoformat(last)
             if datetime.utcnow() < last_dt + timedelta(hours=24):
-                remaining = (last_dt + timedelta(hours=24) - datetime.utcnow())
+                remaining = last_dt + timedelta(hours=24) - datetime.utcnow()
                 hours = int(remaining.total_seconds() // 3600)
-                await ctx.send(f"You already used your daily. Try again in ~{hours} hours.")
+                await ctx.send(f"You already claimed your daily. Try again in ~{hours} hours.")
                 return
 
-        # Find the Pokémon
-        target = None
-        for p in user["pokemon"]:
-            if p["name"].lower() == name.lower() or (p.get("nickname") and p["nickname"].lower() == name.lower()):
-                target = p
-                break
+        # Coin bonus
+        bonus = 25
+        user["coins"] += bonus
+        msg = f"Daily claimed! +{bonus} coins."
 
-        if not target:
-            await ctx.send(f"You don't have a {name}.")
-            return
-
-        if target["name"] not in COMMON_EVOLUTIONS:
-            await ctx.send(f"**{target['name']}** can't be evolved with daily (only commons).")
-            return
-
-        evo = COMMON_EVOLUTIONS[target["name"]]
-        old_name = target["name"]
-        target["name"] = evo
-
-        # Update levels key if needed
-        if old_name in user.get("levels", {}):
-            user["levels"][evo] = user["levels"].pop(old_name)
+        # Optional evolve
+        if name:
+            target = None
+            for p in user.get("pokemon", []):
+                if p["name"].lower() == name.lower() or (p.get("nickname") and p["nickname"].lower() == name.lower()):
+                    target = p
+                    break
+            if target and target["name"] in COMMON_EVOLUTIONS:
+                old = target["name"]
+                evo = COMMON_EVOLUTIONS[old]
+                target["name"] = evo
+                if old in user.get("levels", {}):
+                    user["levels"][evo] = user["levels"].pop(old)
+                msg += f"\nYour **{old}** evolved into **{evo}**!"
+            elif target:
+                msg += f"\n**{target['name']}** can't be evolved with daily."
 
         user["last_daily"] = datetime.utcnow().isoformat()
         self.save_data(data)
-
-        await ctx.send(f"🎉 Your **{old_name}** evolved into **{evo}**! (Daily used)")
+        await ctx.send(msg)
 
 async def setup(bot):
     await bot.add_cog(Daily(bot))
