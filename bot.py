@@ -105,6 +105,11 @@ async def load_cogs():
 async def on_ready():
     print(f"Pokelarp is online as {bot.user}")
     await load_cogs()
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} slash commands")
+    except Exception as e:
+        print(f"Failed to sync slash commands: {e}")
     spawn_loop.start()
 
 @tasks.loop(minutes=1)
