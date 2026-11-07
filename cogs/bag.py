@@ -11,7 +11,9 @@ class Bag(commands.Cog):
     def load_data(self):
         if os.path.exists(self.data_path):
             with open(self.data_path, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+                data.setdefault("users", {})
+                return data
         return {"users": {}}
 
     def get_sprite(self, dex_num, shiny=False):
@@ -40,6 +42,10 @@ class Bag(commands.Cog):
                 seen[key] = True
 
         text = "\n".join(lines) if lines else "None"
+        coins = user.get("coins", 0)
+        balls = user.get("inventory", {}).get("ball", 0)
+        text += f"\n\n**Coins:** {coins}\n**Poké Balls:** {balls}"
+
         embed = discord.Embed(title=f"{ctx.author.display_name}'s Pokémon", description=text, color=0xFF69B4)
         await ctx.send(embed=embed)
 
@@ -72,9 +78,13 @@ class Bag(commands.Cog):
         display = nick if nick else found["name"]
         sprite = self.get_sprite(found["dex"], shiny)
 
+        grinding = user.get("grinding")
+        xp = user.get("xp", {}).get(found["name"], 0)
+        xp_text = f"\nXP: **{xp}**/100" if grinding == found["name"] else ""
+
         embed = discord.Embed(
             title=f"{'✨ ' if shiny else ''}{display}",
-            description=f"**{found['name']}** — Level {level}",
+            description=f"**{found['name']}** — Level {level}{xp_text}",
             color=0xFFD700 if shiny else 0xFF69B4
         )
         embed.set_image(url=sprite)
