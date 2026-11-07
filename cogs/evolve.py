@@ -76,6 +76,8 @@ EVOLUTIONS = {
     "Dragonair": ("Dragonite", 100),
 }
 
+GEN_CHAT_ID = 1540133768730509352
+
 class Evolve(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -160,7 +162,8 @@ class Evolve(commands.Cog):
         if new_level > current_level:
             user.setdefault("levels", {})
             user["levels"][grinding] = new_level
-            await message.channel.send(f"**{message.author.display_name}**'s **{grinding}** grew to level **{new_level}**!")
+            if message.channel.id != GEN_CHAT_ID:
+                await message.channel.send(f"**{message.author.display_name}**'s **{grinding}** grew to level **{new_level}**!")
 
         # Evolution
         if grinding in EVOLUTIONS:
@@ -176,10 +179,10 @@ class Evolve(commands.Cog):
                         user["grinding"] = evo_name
                         break
                 self.save_data(data)
-                await message.channel.send(f"🎉 **{message.author.display_name}**'s **{grinding}** evolved into **{evo_name}**!")
+                if message.channel.id != GEN_CHAT_ID:
+                    await message.channel.send(f"🎉 **{message.author.display_name}**'s **{grinding}** evolved into **{evo_name}**!")
                 return
 
-        # Always save so it sticks
         self.save_data(data)
 
 async def setup(bot):
