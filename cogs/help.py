@@ -18,21 +18,25 @@ class Help(commands.Cog):
         ), inline=False)
         embed.add_field(name="Your Pokémon", value=(
             "`!bag` — see your Pokémon + coins\n"
+            "`!bag shinies` / `!bag Fire` — filters\n"
             "`!info <name>` — details on one\n"
             "`!nickname <pokemon> <name>` — rename\n"
             "`!release <pokemon>` — remove one\n"
             "`!dex` — Pokédex progress"
         ), inline=False)
+        embed.add_field(name="Daily", value=(
+            "`!daily` — claim 25 coins\n"
+            "`!daily <common>` — 25 coins + free evolve"
+        ), inline=False)
         embed.add_field(name="Shop", value=(
             "`!shop` — see items\n"
-            "`!buy ball` — buy a Poké Ball\n"
-            "`!ball` — late catch (5 min)\n"
-            "`!daily` — daily coin bonus"
+            "`!buy ball` — buy a Poké Ball (50 coins)\n"
+            "`!ball` — late catch (5 min)"
         ), inline=False)
         embed.add_field(name="Social", value=(
             "`!gift @user <pokemon>` — give a Pokémon\n"
             "`!trade @user` — start a trade\n"
-            "`!profile` — your profile\n"
+            "`!me` — your profile\n"
             "`!leaderboard` — top catchers"
         ), inline=False)
 
