@@ -357,7 +357,7 @@ async def spawn(ctx):
     await ctx.send("Spawned!")
 
 @bot.command()
-async def coins(ctx):
+async def balance(ctx):
     fresh = load_data()
     user = fresh["users"].get(str(ctx.author.id), {})
     await ctx.send(f"You have **{user.get('coins', 0)}** coins.")
