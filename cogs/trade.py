@@ -18,9 +18,13 @@ class Trade(commands.Cog):
         return {"users": {}, "trades": {}}
 
     def save_data(self, data):
+        # Reload latest so we don't overwrite other changes
+        latest = self.load_data()
+        latest["users"].update(data.get("users", {}))
+        latest["trades"] = data.get("trades", latest.get("trades", {}))
         os.makedirs(os.path.dirname(self.data_path), exist_ok=True)
         with open(self.data_path, "w") as f:
-            json.dump(data, f, indent=2)
+            json.dump(latest, f, indent=2)
 
     @commands.command()
     async def trade(self, ctx, member: discord.Member = None):
@@ -102,7 +106,7 @@ class Trade(commands.Cog):
                 trade_id = tid
                 break
 
-        if not trade or not trade["offer1"] or not trade["offer2"]:
+        if not trade or not trade.get("offer1") or not trade.get("offer2"):
             await ctx.send("Both people need to `!offer` something first.")
             return
 
@@ -112,7 +116,6 @@ class Trade(commands.Cog):
             trade["confirm2"] = True
 
         if trade["confirm1"] and trade["confirm2"]:
-            # Do the swap
             u1 = data["users"].get(str(trade["user1"]), {})
             u2 = data["users"].get(str(trade["user2"]), {})
 
@@ -130,10 +133,11 @@ class Trade(commands.Cog):
                 u2.setdefault("pokemon", []).append(p1)
                 del data["trades"][trade_id]
                 self.save_data(data)
-                await ctx.send(f"Trade complete!")
+                await ctx.send("Trade complete!")
             else:
                 await ctx.send("Something went wrong finding the Pokémon.")
-                del data["trades"][trade_id]
+                if trade_id in data["trades"]:
+                    del data["trades"][trade_id]
                 self.save_data(data)
         else:
             self.save_data(data)
