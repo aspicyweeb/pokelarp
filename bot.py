@@ -18,7 +18,7 @@ SPAWN_CHANNELS = {
 }
 
 SHINY_CHANCE = 0.01
-CHARM_SHINY_CHANCE = 0.05  # 5% with charm
+CHARM_SHINY_CHANCE = 0.05
 
 POKEMON = [
     "Bulbasaur", "Ivysaur", "Venusaur", "Charmander", "Charmeleon", "Charizard",
@@ -194,11 +194,10 @@ async def on_message(message):
         dex = current_spawn["dex"]
         shiny = current_spawn.get("shiny", False)
 
-        # Shiny charm check
         if user.get("shiny_charm"):
             if random.random() < CHARM_SHINY_CHANCE:
                 shiny = True
-            user["shiny_charm"] = False  # one-time use
+            user["shiny_charm"] = False
 
         sprite = get_sprite(dex, shiny)
         spawned_at = datetime.fromisoformat(current_spawn.get("spawned_at", datetime.utcnow().isoformat()))
@@ -369,5 +368,35 @@ async def balance(ctx):
     fresh = load_data()
     user = fresh["users"].get(str(ctx.author.id), {})
     await ctx.send(f"You have **{user.get('coins', 0)}** coins.")
+
+@bot.command()
+async def give(ctx, amount: int = None, item: str = None):
+    if not ctx.author.guild_permissions.administrator:
+        await ctx.send("Admins only.")
+        return
+    if amount is None:
+        await ctx.send("Usage: `!give 500` or `!give 5 stone`")
+        return
+
+    data = load_data()
+    user_id = str(ctx.author.id)
+    if user_id not in data["users"]:
+        data["users"][user_id] = {
+            "pokemon": [], "levels": {}, "has_starter": False,
+            "catches_without_starter": 0, "coins": 0, "inventory": {}
+        }
+    user = data["users"][user_id]
+    user.setdefault("coins", 0)
+    user.setdefault("inventory", {})
+
+    if item:
+        item = item.lower()
+        user["inventory"][item] = user["inventory"].get(item, 0) + amount
+        save_data(data)
+        await ctx.send(f"Gave yourself **{amount} {item}**(s).")
+    else:
+        user["coins"] += amount
+        save_data(data)
+        await ctx.send(f"Gave yourself **{amount}** coins. Balance: {user['coins']}.")
 
 bot.run(TOKEN)
