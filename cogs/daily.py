@@ -37,9 +37,11 @@ class Daily(commands.Cog):
         return {"users": {}}
 
     def save_data(self, data):
+        latest = self.load_data()
+        latest["users"].update(data.get("users", {}))
         os.makedirs(os.path.dirname(self.data_path), exist_ok=True)
         with open(self.data_path, "w") as f:
-            json.dump(data, f, indent=2)
+            json.dump(latest, f, indent=2)
 
     def ensure_user(self, data, user_id):
         if user_id not in data["users"]:
