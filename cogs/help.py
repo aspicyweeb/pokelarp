@@ -23,15 +23,11 @@ class Help(commands.Cog):
             "`!release <pokemon>` — remove one\n"
             "`!dex` — Pokédex progress"
         ), inline=False)
-        embed.add_field(name="Training", value=(
-            "`!grind <pokemon>` — train one\n"
-            "`!xp` — check progress\n"
-            "`!daily` — coin bonus (+ optional evolve)"
-        ), inline=False)
         embed.add_field(name="Shop", value=(
             "`!shop` — see items\n"
             "`!buy ball` — buy a Poké Ball\n"
-            "`!ball` — late catch (5 min)"
+            "`!ball` — late catch (5 min)\n"
+            "`!daily` — daily coin bonus"
         ), inline=False)
         embed.add_field(name="Social", value=(
             "`!gift @user <pokemon>` — give a Pokémon\n"
