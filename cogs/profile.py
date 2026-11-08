@@ -16,7 +16,7 @@ class Profile(commands.Cog):
                 return data
         return {"users": {}}
 
-    @commands.command(aliases=["me", "profile"])
+    @commands.command(aliases=["me"])
     async def profile(self, ctx):
         data = self.load_data()
         user_id = str(ctx.author.id)
@@ -29,24 +29,17 @@ class Profile(commands.Cog):
         total = len(pokemon)
         unique = len({p["name"] for p in pokemon})
 
-        # Starter
         starter = "None"
         for p in pokemon:
             if p.get("name") in ["Bulbasaur", "Charmander", "Squirtle"]:
                 starter = p["name"]
                 break
 
-        # Highest level
         levels = user.get("levels", {})
         highest = "None"
         if levels:
             top_name = max(levels, key=levels.get)
             highest = f"{top_name} (Lv.{levels[top_name]})"
-
-        # Grinding
-        grinding = user.get("grinding", "None")
-        xp = user.get("xp", {}).get(grinding, 0) if grinding != "None" else 0
-        grind_text = f"{grinding} ({xp}/100 XP)" if grinding != "None" else "None"
 
         embed = discord.Embed(
             title=f"{ctx.author.display_name}'s Profile",
@@ -56,7 +49,6 @@ class Profile(commands.Cog):
         embed.add_field(name="Total Caught", value=str(total), inline=True)
         embed.add_field(name="Unique", value=f"{unique}/151", inline=True)
         embed.add_field(name="Highest Level", value=highest, inline=True)
-        embed.add_field(name="Grinding", value=grind_text, inline=True)
         embed.set_thumbnail(url=ctx.author.display_avatar.url)
 
         await ctx.send(embed=embed)
