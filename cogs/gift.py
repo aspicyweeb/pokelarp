@@ -17,9 +17,28 @@ class Gift(commands.Cog):
         return {"users": {}}
 
     def save_data(self, data):
+        latest = self.load_data()
+        latest["users"].update(data.get("users", {}))
         os.makedirs(os.path.dirname(self.data_path), exist_ok=True)
         with open(self.data_path, "w") as f:
-            json.dump(data, f, indent=2)
+            json.dump(latest, f, indent=2)
+
+    def ensure_user(self, data, user_id):
+        if user_id not in data["users"]:
+            data["users"][user_id] = {
+                "pokemon": [],
+                "levels": {},
+                "has_starter": False,
+                "catches_without_starter": 0,
+                "coins": 0,
+                "inventory": {}
+            }
+        user = data["users"][user_id]
+        user.setdefault("pokemon", [])
+        user.setdefault("levels", {})
+        user.setdefault("coins", 0)
+        user.setdefault("inventory", {})
+        return user
 
     @commands.command()
     async def gift(self, ctx, member: discord.Member = None, *, name: str = None):
@@ -32,14 +51,13 @@ class Gift(commands.Cog):
             return
 
         data = self.load_data()
-        giver_id = str(ctx.author.id)
-        receiver_id = str(member.id)
+        giver = self.ensure_user(data, str(ctx.author.id))
+        receiver = self.ensure_user(data, str(member.id))
 
-        if giver_id not in data["users"] or not data["users"][giver_id].get("pokemon"):
+        if not giver.get("pokemon"):
             await ctx.send("You don't have any Pokémon to gift.")
             return
 
-        giver = data["users"][giver_id]
         target = None
         for i, p in enumerate(giver["pokemon"]):
             if p["name"].lower() == name.lower() or (p.get("nickname") and p["nickname"].lower() == name.lower()):
@@ -50,21 +68,10 @@ class Gift(commands.Cog):
             await ctx.send(f"You don't have a {name}.")
             return
 
-        # Make sure receiver exists
-        if receiver_id not in data["users"]:
-            data["users"][receiver_id] = {
-                "pokemon": [],
-                "levels": {},
-                "has_starter": False,
-                "catches_without_starter": 0
-            }
-
-        receiver = data["users"][receiver_id]
         receiver["pokemon"].append(target)
 
         # Move level if it exists
         if target["name"] in giver.get("levels", {}):
-            receiver.setdefault("levels", {})
             receiver["levels"][target["name"]] = giver["levels"].pop(target["name"])
 
         self.save_data(data)
