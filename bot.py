@@ -18,6 +18,7 @@ SPAWN_CHANNELS = {
 }
 
 SHINY_CHANCE = 0.01
+CHARM_SHINY_CHANCE = 0.05  # 5% with charm
 
 POKEMON = [
     "Bulbasaur", "Ivysaur", "Venusaur", "Charmander", "Charmeleon", "Charizard",
@@ -192,7 +193,14 @@ async def on_message(message):
         name = current_spawn["name"]
         dex = current_spawn["dex"]
         shiny = current_spawn.get("shiny", False)
-        sprite = current_spawn.get("sprite")
+
+        # Shiny charm check
+        if user.get("shiny_charm"):
+            if random.random() < CHARM_SHINY_CHANCE:
+                shiny = True
+            user["shiny_charm"] = False  # one-time use
+
+        sprite = get_sprite(dex, shiny)
         spawned_at = datetime.fromisoformat(current_spawn.get("spawned_at", datetime.utcnow().isoformat()))
         catch_time = datetime.utcnow()
         seconds = (catch_time - spawned_at).total_seconds()
