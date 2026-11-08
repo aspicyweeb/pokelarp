@@ -7,15 +7,15 @@ class Trade(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.data_path = os.getenv("DATA_PATH", "/data/pokelarp_data.json")
-        self.active_trades = {}  # {user_id: {"partner": id, "offer": pokemon_name}}
 
     def load_data(self):
         if os.path.exists(self.data_path):
             with open(self.data_path, "r") as f:
                 data = json.load(f)
                 data.setdefault("users", {})
+                data.setdefault("trades", {})
                 return data
-        return {"users": {}}
+        return {"users": {}, "trades": {}}
 
     def save_data(self, data):
         os.makedirs(os.path.dirname(self.data_path), exist_ok=True)
@@ -31,11 +31,19 @@ class Trade(commands.Cog):
             await ctx.send("You can't trade with yourself or a bot.")
             return
 
-        self.active_trades[ctx.author.id] = {"partner": member.id, "offer": None}
-        self.active_trades[member.id] = {"partner": ctx.author.id, "offer": None}
-
+        data = self.load_data()
+        trade_id = f"{min(ctx.author.id, member.id)}_{max(ctx.author.id, member.id)}"
+        data["trades"][trade_id] = {
+            "user1": ctx.author.id,
+            "user2": member.id,
+            "offer1": None,
+            "offer2": None,
+            "confirm1": False,
+            "confirm2": False
+        }
+        self.save_data(data)
         await ctx.send(f"Trade started between **{ctx.author.display_name}** and **{member.display_name}**!\n"
-                       f"Both of you use `!offer <pokemon>` to choose what you're trading.")
+                       f"Both use `!offer <pokemon>` then `!confirm`.")
 
     @commands.command()
     async def offer(self, ctx, *, name: str = None):
@@ -43,21 +51,32 @@ class Trade(commands.Cog):
             await ctx.send("Usage: `!offer <pokemon>`")
             return
 
-        if ctx.author.id not in self.active_trades:
+        data = self.load_data()
+        user_id = ctx.author.id
+        trade = None
+        trade_id = None
+        for tid, t in data.get("trades", {}).items():
+            if user_id in (t["user1"], t["user2"]):
+                trade = t
+                trade_id = tid
+                break
+
+        if not trade:
             await ctx.send("You don't have an active trade. Start one with `!trade @user`.")
             return
 
-        data = self.load_data()
-        user_id = str(ctx.author.id)
-        if user_id not in data["users"] or not data["users"][user_id].get("pokemon"):
+        user_data = data["users"].get(str(user_id), {})
+        if not user_data.get("pokemon"):
             await ctx.send("You don't have any Pokémon.")
             return
 
-        user = data["users"][user_id]
         found = False
-        for p in user["pokemon"]:
+        for p in user_data["pokemon"]:
             if p["name"].lower() == name.lower() or (p.get("nickname") and p["nickname"].lower() == name.lower()):
-                self.active_trades[ctx.author.id]["offer"] = p["name"]
+                if user_id == trade["user1"]:
+                    trade["offer1"] = p["name"]
+                else:
+                    trade["offer2"] = p["name"]
                 found = True
                 break
 
@@ -65,72 +84,72 @@ class Trade(commands.Cog):
             await ctx.send(f"You don't have a {name}.")
             return
 
-        partner_id = self.active_trades[ctx.author.id]["partner"]
+        self.save_data(data)
         await ctx.send(f"**{ctx.author.display_name}** offered **{name}**.")
 
-        # Check if both have offered
-        if (partner_id in self.active_trades and 
-            self.active_trades[partner_id]["offer"] and 
-            self.active_trades[ctx.author.id]["offer"]):
-            await ctx.send("Both offers are in! Both of you type `!confirm` to finish the trade.")
+        if trade["offer1"] and trade["offer2"]:
+            await ctx.send("Both offers are in! Type `!confirm` to finish.")
 
     @commands.command()
     async def confirm(self, ctx):
-        if ctx.author.id not in self.active_trades:
-            await ctx.send("You don't have an active trade.")
-            return
+        data = self.load_data()
+        user_id = ctx.author.id
+        trade = None
+        trade_id = None
+        for tid, t in data.get("trades", {}).items():
+            if user_id in (t["user1"], t["user2"]):
+                trade = t
+                trade_id = tid
+                break
 
-        trade = self.active_trades[ctx.author.id]
-        partner_id = trade["partner"]
-        if partner_id not in self.active_trades or not trade["offer"] or not self.active_trades[partner_id]["offer"]:
+        if not trade or not trade["offer1"] or not trade["offer2"]:
             await ctx.send("Both people need to `!offer` something first.")
             return
 
-        # Mark as confirmed
-        trade["confirmed"] = True
-        if self.active_trades[partner_id].get("confirmed"):
-            # Both confirmed — do the swap
-            data = self.load_data()
-            user1 = data["users"][str(ctx.author.id)]
-            user2 = data["users"][str(partner_id)]
+        if user_id == trade["user1"]:
+            trade["confirm1"] = True
+        else:
+            trade["confirm2"] = True
 
-            offer1 = trade["offer"]
-            offer2 = self.active_trades[partner_id]["offer"]
+        if trade["confirm1"] and trade["confirm2"]:
+            # Do the swap
+            u1 = data["users"].get(str(trade["user1"]), {})
+            u2 = data["users"].get(str(trade["user2"]), {})
 
-            # Remove from each and add to the other
             def take(user, name):
-                for i, p in enumerate(user["pokemon"]):
+                for i, p in enumerate(user.get("pokemon", [])):
                     if p["name"] == name:
                         return user["pokemon"].pop(i)
                 return None
 
-            p1 = take(user1, offer1)
-            p2 = take(user2, offer2)
+            p1 = take(u1, trade["offer1"])
+            p2 = take(u2, trade["offer2"])
 
             if p1 and p2:
-                user1["pokemon"].append(p2)
-                user2["pokemon"].append(p1)
+                u1.setdefault("pokemon", []).append(p2)
+                u2.setdefault("pokemon", []).append(p1)
+                del data["trades"][trade_id]
                 self.save_data(data)
-                await ctx.send(f"Trade complete! **{ctx.author.display_name}** got **{offer2}**, partner got **{offer1}**.")
+                await ctx.send(f"Trade complete!")
             else:
-                await ctx.send("Something went wrong with the trade.")
-
-            # Clear trades
-            del self.active_trades[ctx.author.id]
-            del self.active_trades[partner_id]
+                await ctx.send("Something went wrong finding the Pokémon.")
+                del data["trades"][trade_id]
+                self.save_data(data)
         else:
+            self.save_data(data)
             await ctx.send(f"**{ctx.author.display_name}** confirmed. Waiting for the other person.")
 
     @commands.command()
     async def cancel(self, ctx):
-        if ctx.author.id in self.active_trades:
-            partner_id = self.active_trades[ctx.author.id]["partner"]
-            del self.active_trades[ctx.author.id]
-            if partner_id in self.active_trades:
-                del self.active_trades[partner_id]
-            await ctx.send("Trade cancelled.")
-        else:
-            await ctx.send("You don't have an active trade.")
+        data = self.load_data()
+        user_id = ctx.author.id
+        for tid, t in list(data.get("trades", {}).items()):
+            if user_id in (t["user1"], t["user2"]):
+                del data["trades"][tid]
+                self.save_data(data)
+                await ctx.send("Trade cancelled.")
+                return
+        await ctx.send("You don't have an active trade.")
 
 async def setup(bot):
     await bot.add_cog(Trade(bot))
