@@ -58,6 +58,20 @@ RARITY = {
 
 RARE_POKEMON = {"Articuno", "Zapdos", "Moltres", "Mewtwo", "Mew", "Dratini", "Lapras", "Snorlax"}
 
+EVO_MAP = {
+    "Pidgey": "Pidgeotto", "Rattata": "Raticate", "Caterpie": "Metapod", "Weedle": "Kakuna",
+    "Oddish": "Gloom", "Poliwag": "Poliwhirl", "Abra": "Kadabra", "Machop": "Machoke",
+    "Bellsprout": "Weepinbell", "Geodude": "Graveler", "Gastly": "Haunter", "Magikarp": "Gyarados",
+    "Spearow": "Fearow", "Ekans": "Arbok", "Sandshrew": "Sandslash", "Zubat": "Golbat",
+    "Paras": "Parasect", "Venonat": "Venomoth", "Diglett": "Dugtrio", "Meowth": "Persian",
+    "Psyduck": "Golduck", "Mankey": "Primeape", "Growlithe": "Arcanine", "Tentacool": "Tentacruel",
+    "Ponyta": "Rapidash", "Slowpoke": "Slowbro", "Magnemite": "Magneton", "Doduo": "Dodrio",
+    "Seel": "Dewgong", "Grimer": "Muk", "Shellder": "Cloyster", "Drowzee": "Hypno",
+    "Krabby": "Kingler", "Voltorb": "Electrode", "Exeggcute": "Exeggutor", "Cubone": "Marowak",
+    "Koffing": "Weezing", "Rhyhorn": "Rhydon", "Horsea": "Seadra", "Goldeen": "Seaking",
+    "Staryu": "Starmie", "Dratini": "Dragonair"
+}
+
 STARTERS = {
     "1": {"name": "Bulbasaur", "dex": 1},
     "2": {"name": "Charmander", "dex": 4},
@@ -398,5 +412,67 @@ async def give(ctx, amount: int = None, item: str = None):
         user["coins"] += amount
         save_data(data)
         await ctx.send(f"Gave yourself **{amount}** coins. Balance: {user['coins']}.")
+
+@bot.command()
+async def daily(ctx):
+    data = load_data()
+    user_id = str(ctx.author.id)
+    if user_id not in data["users"]:
+        data["users"][user_id] = {
+            "pokemon": [], "levels": {}, "has_starter": False,
+            "catches_without_starter": 0, "coins": 0, "inventory": {}
+        }
+    user = data["users"][user_id]
+    user.setdefault("coins", 0)
+
+    last = user.get("last_daily")
+    if last:
+        last_dt = datetime.fromisoformat(last)
+        if datetime.utcnow() < last_dt + timedelta(hours=24):
+            hours = int((last_dt + timedelta(hours=24) - datetime.utcnow()).total_seconds() // 3600)
+            await ctx.send(f"Already claimed. Try again in ~{hours} hours.")
+            return
+
+    user["coins"] += 25
+    user["last_daily"] = datetime.utcnow().isoformat()
+    save_data(data)
+    await ctx.send(f"+25 coins! You now have **{user['coins']}**.")
+
+@bot.command()
+async def evolve(ctx, *, name: str = None):
+    if not name:
+        await ctx.send("Usage: `!evolve <pokemon>`")
+        return
+
+    data = load_data()
+    user_id = str(ctx.author.id)
+    if user_id not in data["users"] or not data["users"][user_id].get("pokemon"):
+        await ctx.send("You don't have any Pokémon.")
+        return
+    user = data["users"][user_id]
+
+    last = user.get("last_evolve")
+    if last:
+        last_dt = datetime.fromisoformat(last)
+        if datetime.utcnow() < last_dt + timedelta(hours=24):
+            hours = int((last_dt + timedelta(hours=24) - datetime.utcnow()).total_seconds() // 3600)
+            await ctx.send(f"Already used evolve. Try again in ~{hours} hours.")
+            return
+
+    target = None
+    for p in user["pokemon"]:
+        if p["name"].lower() == name.lower() or (p.get("nickname") and p["nickname"].lower() == name.lower()):
+            target = p
+            break
+
+    if not target or target["name"] not in EVO_MAP:
+        await ctx.send("That Pokémon can't be evolved with !evolve.")
+        return
+
+    old = target["name"]
+    target["name"] = EVO_MAP[old]
+    user["last_evolve"] = datetime.utcnow().isoformat()
+    save_data(data)
+    await ctx.send(f"**{old}** evolved into **{target['name']}**!")
 
 bot.run(TOKEN)
