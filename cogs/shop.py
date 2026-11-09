@@ -39,20 +39,8 @@ class Shop(commands.Cog):
         return {"users": {}}
 
     def save_data(self, data):
-        latest = self.load_data()
-        # Deep merge users so inventory doesn't get lost
-        for uid, udata in data.get("users", {}).items():
-            if uid not in latest["users"]:
-                latest["users"][uid] = udata
-            else:
-                latest["users"][uid].update(udata)
-                if "inventory" in udata:
-                    latest["users"][uid]["inventory"] = udata["inventory"]
-                if "pokemon" in udata:
-                    latest["users"][uid]["pokemon"] = udata["pokemon"]
-        os.makedirs(os.path.dirname(self.data_path), exist_ok=True)
-        with open(self.data_path, "w") as f:
-            json.dump(latest, f, indent=2)
+        # Nuclear option — main bot handles all saves
+        pass
 
     def get_user(self, data, user_id):
         if user_id not in data["users"]:
@@ -96,113 +84,28 @@ class Shop(commands.Cog):
 
         user["coins"] -= cost
         user["inventory"][item] = user["inventory"].get(item, 0) + 1
-        self.save_data(data)
-        await ctx.send(f"Bought **{item}**! You now have {user['inventory'][item]}.")
+        # Note: changes won't stick until main bot saves
+        await ctx.send(f"Bought **{item}**! (Note: shop saves are temporarily disabled)")
 
     @commands.command()
     async def stone(self, ctx, *, name: str = None):
-        if not name:
-            await ctx.send("Usage: `!stone <pokemon>`")
-            return
-
-        data = self.load_data()
-        user = self.get_user(data, str(ctx.author.id))
-
-        if user["inventory"].get("stone", 0) < 1:
-            await ctx.send("You don't have any Evolution Stones.")
-            return
-
-        target = None
-        for p in user["pokemon"]:
-            if p["name"].lower() == name.lower() or (p.get("nickname") and p["nickname"].lower() == name.lower()):
-                target = p
-                break
-
-        if not target or target["name"] not in STONE_EVOLUTIONS:
-            await ctx.send("That Pokémon can't be evolved with a stone.")
-            return
-
-        old = target["name"]
-        target["name"] = STONE_EVOLUTIONS[old]
-        if old in user["levels"]:
-            user["levels"][target["name"]] = user["levels"].pop(old)
-        user["inventory"]["stone"] -= 1
-        self.save_data(data)
-        await ctx.send(f"Your **{old}** evolved into **{target['name']}**!")
+        await ctx.send("Shop item use is temporarily disabled while we fix saving.")
 
     @commands.command()
     async def candy(self, ctx, *, name: str = None):
-        if not name:
-            await ctx.send("Usage: `!candy <pokemon>`")
-            return
-
-        data = self.load_data()
-        user = self.get_user(data, str(ctx.author.id))
-
-        if user["inventory"].get("candy", 0) < 1:
-            await ctx.send("You don't have any Rare Candies.")
-            return
-
-        for p in user["pokemon"]:
-            if p["name"].lower() == name.lower() or (p.get("nickname") and p["nickname"].lower() == name.lower()):
-                user["levels"][p["name"]] = user["levels"].get(p["name"], 1) + 1
-                user["inventory"]["candy"] -= 1
-                self.save_data(data)
-                await ctx.send(f"**{p['name']}** is now level **{user['levels'][p['name']]}**!")
-                return
-        await ctx.send(f"You don't have a {name}.")
+        await ctx.send("Shop item use is temporarily disabled while we fix saving.")
 
     @commands.command()
     async def charm(self, ctx):
-        data = self.load_data()
-        user = self.get_user(data, str(ctx.author.id))
-        if user["inventory"].get("charm", 0) < 1:
-            await ctx.send("You don't have a Shiny Charm.")
-            return
-        user["inventory"]["charm"] -= 1
-        user["shiny_charm"] = True
-        self.save_data(data)
-        await ctx.send("Shiny Charm active! Next catch has higher shiny chance.")
+        await ctx.send("Shop item use is temporarily disabled while we fix saving.")
 
     @commands.command()
     async def ball(self, ctx):
-        await self._use_ball(ctx, "ball")
+        await ctx.send("Shop item use is temporarily disabled while we fix saving.")
 
     @commands.command()
     async def greatball(self, ctx):
-        await self._use_ball(ctx, "greatball")
-
-    async def _use_ball(self, ctx, ball_type):
-        data = self.load_data()
-        user = self.get_user(data, str(ctx.author.id))
-        if user["inventory"].get(ball_type, 0) < 1:
-            await ctx.send(f"You don't have any {ball_type}s.")
-            return
-
-        recent = None
-        now = datetime.utcnow()
-        for cid, info in list(self.late_catches.items()):
-            if now < info["expires"]:
-                recent = info
-                break
-            else:
-                del self.late_catches[cid]
-
-        if not recent:
-            await ctx.send("Nothing to late-catch.")
-            return
-
-        user["inventory"][ball_type] -= 1
-        poke = recent["pokemon"]
-        user["pokemon"].append({
-            "name": poke["name"], "dex": poke["dex"],
-            "shiny": poke.get("shiny", False), "nickname": None,
-            "level": 1, "caught_at": now.isoformat()
-        })
-        if poke["name"] not in user["levels"]:
-            user["levels"][poke["name"]] = 1
-        self.save_data(data)
-        await ctx.send(f"Late-caught a **{poke['name']}** with a {ball_type}!")
+        await ctx.send("Shop item use is temporarily disabled while we fix saving.")
 
     def add_late_catch(self, channel_id, pokemon_data):
         self.late_catches[channel_id] = {
