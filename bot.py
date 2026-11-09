@@ -3,7 +3,7 @@ import discord
 from discord.ext import commands, tasks
 import random
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 DATA_PATH = os.getenv("DATA_PATH", "/data/pokelarp_data.json")
@@ -132,7 +132,7 @@ async def spawn_loop():
     if current_spawn:
         return
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     for channel_id, rates in SPAWN_CHANNELS.items():
         channel = bot.get_channel(channel_id)
@@ -142,6 +142,8 @@ async def spawn_loop():
         channel_last = data.get(f"last_spawn_{channel_id}")
         if channel_last:
             last_dt = datetime.fromisoformat(channel_last)
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
             wait = timedelta(minutes=random.randint(rates["min"], rates["max"]))
             if now < last_dt + wait:
                 continue
@@ -214,8 +216,11 @@ async def on_message(message):
             user["shiny_charm"] = False
 
         sprite = get_sprite(dex, shiny)
-        spawned_at = datetime.fromisoformat(current_spawn.get("spawned_at", datetime.utcnow().isoformat()))
-        catch_time = datetime.utcnow()
+        spawned_at_str = current_spawn.get("spawned_at", datetime.now(timezone.utc).isoformat())
+        spawned_at = datetime.fromisoformat(spawned_at_str)
+        if spawned_at.tzinfo is None:
+            spawned_at = spawned_at.replace(tzinfo=timezone.utc)
+        catch_time = datetime.now(timezone.utc)
         seconds = (catch_time - spawned_at).total_seconds()
         mins = int(seconds // 60)
         secs = round(seconds % 60, 1)
@@ -326,7 +331,7 @@ async def starter(ctx):
     data["users"][user_id]["pokemon"].append({
         "name": name,
         "dex": dex,
-        "caught_at": datetime.utcnow().isoformat(),
+        "caught_at": datetime.now(timezone.utc).isoformat(),
         "level": 1,
         "shiny": False,
         "nickname": None
@@ -360,12 +365,13 @@ async def spawn(ctx):
     shiny = random.random() < SHINY_CHANCE
     sprite = get_sprite(dex, shiny)
 
+    now = datetime.now(timezone.utc)
     current_spawn = {
         "name": name,
         "dex": dex,
         "sprite": sprite,
         "shiny": shiny,
-        "spawned_at": datetime.utcnow().isoformat(),
+        "spawned_at": now.isoformat(),
         "channel_id": channel.id
     }
     data["current_spawn"] = current_spawn
@@ -428,13 +434,15 @@ async def daily(ctx):
     last = user.get("last_daily")
     if last:
         last_dt = datetime.fromisoformat(last)
-        if datetime.utcnow() < last_dt + timedelta(hours=24):
-            hours = int((last_dt + timedelta(hours=24) - datetime.utcnow()).total_seconds() // 3600)
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) < last_dt + timedelta(hours=24):
+            hours = int((last_dt + timedelta(hours=24) - datetime.now(timezone.utc)).total_seconds() // 3600)
             await ctx.send(f"Already claimed. Try again in ~{hours} hours.")
             return
 
     user["coins"] += 25
-    user["last_daily"] = datetime.utcnow().isoformat()
+    user["last_daily"] = datetime.now(timezone.utc).isoformat()
     save_data(data)
     await ctx.send(f"+25 coins! You now have **{user['coins']}**.")
 
@@ -454,8 +462,10 @@ async def evolve(ctx, *, name: str = None):
     last = user.get("last_evolve")
     if last:
         last_dt = datetime.fromisoformat(last)
-        if datetime.utcnow() < last_dt + timedelta(hours=24):
-            hours = int((last_dt + timedelta(hours=24) - datetime.utcnow()).total_seconds() // 3600)
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) < last_dt + timedelta(hours=24):
+            hours = int((last_dt + timedelta(hours=24) - datetime.now(timezone.utc)).total_seconds() // 3600)
             await ctx.send(f"Already used evolve. Try again in ~{hours} hours.")
             return
 
@@ -471,7 +481,7 @@ async def evolve(ctx, *, name: str = None):
 
     old = target["name"]
     target["name"] = EVO_MAP[old]
-    user["last_evolve"] = datetime.utcnow().isoformat()
+    user["last_evolve"] = datetime.now(timezone.utc).isoformat()
     save_data(data)
     await ctx.send(f"**{old}** evolved into **{target['name']}**!")
 
