@@ -485,4 +485,22 @@ async def evolve(ctx, *, name: str = None):
     save_data(data)
     await ctx.send(f"**{old}** evolved into **{target['name']}**!")
 
+@bot.command()
+async def checkdaily(ctx, member: discord.Member = None):
+    if not ctx.author.guild_permissions.administrator:
+        await ctx.send("Admins only.")
+        return
+    target = member or ctx.author
+    data = load_data()
+    user = data["users"].get(str(target.id), {})
+    last_daily = user.get("last_daily", "never")
+    last_evolve = user.get("last_evolve", "never")
+    coins = user.get("coins", 0)
+    await ctx.send(
+        f"**{target.display_name}**\n"
+        f"Last daily: `{last_daily}`\n"
+        f"Last evolve: `{last_evolve}`\n"
+        f"Coins: {coins}"
+    )
+
 bot.run(TOKEN)
