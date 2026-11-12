@@ -1,49 +1,45 @@
+import asyncio
+import io
+
+import aiohttp
 import discord
 from discord.ext import commands
-import json
-import os
 from PIL import Image, ImageEnhance
-import aiohttp
-import io
+
+import cogs as storage
+
+_sprite_cache = {}
+
 
 class Pokedex(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.data_path = os.getenv("DATA_PATH", "/data/pokelarp_data.json")
 
-    def load_data(self):
-        if os.path.exists(self.data_path):
-            with open(self.data_path, "r") as f:
-                data = json.load(f)
-                data.setdefault("users", {})
-                return data
-        return {"users": {}}
-
-    async def get_sprite(self, dex, session, grey=False):
+    async def get_sprite(self, dex, session):
+        cached = _sprite_cache.get(dex)
+        if cached is not None:
+            return cached
         url = f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{dex}.png"
         try:
             async with session.get(url) as resp:
                 if resp.status != 200:
                     return None
-                data = await resp.read()
-                img = Image.open(io.BytesIO(data)).convert("RGBA")
-                if grey:
-                    img = ImageEnhance.Color(img).enhance(0)
-                return img
-        except:
+                raw = await resp.read()
+            img = Image.open(io.BytesIO(raw)).convert("RGBA")
+            _sprite_cache[dex] = img
+            return img
+        except (aiohttp.ClientError, OSError):
             return None
 
-    @commands.command(aliases=["dex", "pokedex"])
-    async def pokedex(self, ctx):
-        data = self.load_data()
-        user_id = str(ctx.author.id)
-        if user_id not in data["users"] or not data["users"][user_id].get("pokemon"):
+    @commands.command(name="pokedex", aliases=["dex"])
+    async def pokedex_cmd(self, ctx):
+        user = storage.data.get("users", {}).get(str(ctx.author.id))
+        if not user or not user.get("pokemon"):
             await ctx.send("You haven't caught any Pokémon yet!")
             return
 
-        caught_dex = {p.get("dex") for p in data["users"][user_id]["pokemon"] if p.get("dex")}
+        caught_dex = {p.get("dex") for p in user["pokemon"] if p.get("dex")}
         total = 151
-
         cols = 16
         size = 40
         padding = 2
@@ -52,33 +48,44 @@ class Pokedex(commands.Cog):
         height = rows * (size + padding) + padding
         panel = Image.new("RGBA", (width, height), (25, 25, 25, 255))
 
-        async with aiohttp.ClientSession() as session:
-            for i in range(1, total + 1):
-                row = (i - 1) // cols
-                col = (i - 1) % cols
-                x = padding + col * (size + padding)
-                y = padding + row * (size + padding)
+        timeout = aiohttp.ClientTimeout(total=40)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            semaphore = asyncio.Semaphore(20)
 
-                grey = i not in caught_dex
-                sprite = await self.get_sprite(i, session, grey)
-                if sprite:
-                    sprite = sprite.resize((size, size), Image.Resampling.LANCZOS)
-                    panel.paste(sprite, (x, y), sprite)
+            async def one(dex):
+                async with semaphore:
+                    return dex, await self.get_sprite(dex, session)
+
+            sprites = await asyncio.gather(*(one(i) for i in range(1, total + 1)))
+
+        for dex, sprite in sprites:
+            if sprite is None:
+                continue
+            row = (dex - 1) // cols
+            col = (dex - 1) % cols
+            x = padding + col * (size + padding)
+            y = padding + row * (size + padding)
+            image = sprite
+            if dex not in caught_dex:
+                image = ImageEnhance.Color(sprite).enhance(0)
+            image = image.resize((size, size), Image.Resampling.LANCZOS)
+            panel.paste(image, (x, y), image)
 
         buf = io.BytesIO()
         panel.save(buf, format="PNG")
         buf.seek(0)
 
-        count = len(caught_dex)
+        count = len(caught_dex & set(range(1, total + 1)))
         percent = round((count / total) * 100, 1)
         embed = discord.Embed(
             title=f"{ctx.author.display_name}'s Pokédex",
             description=f"**{count}/{total}** caught ({percent}%)",
-            color=0xFF69B4
+            color=0xFF69B4,
         )
         file = discord.File(buf, filename="pokedex.png")
         embed.set_image(url="attachment://pokedex.png")
         await ctx.send(embed=embed, file=file)
+
 
 async def setup(bot):
     await bot.add_cog(Pokedex(bot))
