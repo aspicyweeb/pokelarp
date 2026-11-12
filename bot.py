@@ -1,313 +1,248 @@
+"""Pokelarp — a Gen 1 Discord catch bot.
+
+    DISCORD_TOKEN=... DATA_PATH=/data/pokelarp_data.json python bot.py
+
+Turn on the Message Content intent in the Discord developer portal or `catch`
+and the other prefix commands never fire.
+"""
 import os
+import random
+import traceback
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
 import discord
 from discord.ext import commands, tasks
-import random
-import json
-from datetime import datetime, timedelta, timezone
+
+import cogs as storage
+from cogs import (
+    CHARM_SHINY_CHANCE,
+    EVO_MAP,
+    SHINY_CHANCE,
+    STARTERS,
+    apply_evolution,
+    find_owned,
+    get_sprite,
+    get_weighted_pokemon,
+    grant_catch,
+    new_mon,
+    remember_species_level,
+)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-DATA_PATH = os.getenv("DATA_PATH", "/data/pokelarp_data.json")
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-SPAWN_CHANNELS = {
-    1568206877286735872: {"min": 5, "max": 45},
-    1540133768730509352: {"min": 30, "max": 120},
-}
+_missing_channels = set()
+_booted = False
 
-SHINY_CHANCE = 0.01
-CHARM_SHINY_CHANCE = 0.05
 
-POKEMON = [
-    "Bulbasaur", "Ivysaur", "Venusaur", "Charmander", "Charmeleon", "Charizard",
-    "Squirtle", "Wartortle", "Blastoise", "Caterpie", "Metapod", "Butterfree",
-    "Weedle", "Kakuna", "Beedrill", "Pidgey", "Pidgeotto", "Pidgeot",
-    "Rattata", "Raticate", "Spearow", "Fearow", "Ekans", "Arbok",
-    "Pikachu", "Raichu", "Sandshrew", "Sandslash", "Nidoran♀", "Nidorina",
-    "Nidoqueen", "Nidoran♂", "Nidorino", "Nidoking", "Clefairy", "Clefable",
-    "Vulpix", "Ninetales", "Jigglypuff", "Wigglytuff", "Zubat", "Golbat",
-    "Oddish", "Gloom", "Vileplume", "Paras", "Parasect", "Venonat",
-    "Venomoth", "Diglett", "Dugtrio", "Meowth", "Persian", "Psyduck",
-    "Golduck", "Mankey", "Primeape", "Growlithe", "Arcanine", "Poliwag",
-    "Poliwhirl", "Poliwrath", "Abra", "Kadabra", "Alakazam", "Machop",
-    "Machoke", "Machamp", "Bellsprout", "Weepinbell", "Victreebel", "Tentacool",
-    "Tentacruel", "Geodude", "Graveler", "Golem", "Ponyta", "Rapidash",
-    "Slowpoke", "Slowbro", "Magnemite", "Magneton", "Farfetch'd", "Doduo",
-    "Dodrio", "Seel", "Dewgong", "Grimer", "Muk", "Shellder",
-    "Cloyster", "Gastly", "Haunter", "Gengar", "Onix", "Drowzee",
-    "Hypno", "Krabby", "Kingler", "Voltorb", "Electrode", "Exeggcute",
-    "Exeggutor", "Cubone", "Marowak", "Hitmonlee", "Hitmonchan", "Lickitung",
-    "Koffing", "Weezing", "Rhyhorn", "Rhydon", "Chansey", "Tangela",
-    "Kangaskhan", "Horsea", "Seadra", "Goldeen", "Seaking", "Staryu",
-    "Starmie", "Mr. Mime", "Scyther", "Jynx", "Electabuzz", "Magmar",
-    "Pinsir", "Tauros", "Magikarp", "Gyarados", "Lapras", "Ditto",
-    "Eevee", "Vaporeon", "Jolteon", "Flareon", "Porygon", "Omanyte",
-    "Omastar", "Kabuto", "Kabutops", "Aerodactyl", "Snorlax", "Articuno",
-    "Zapdos", "Moltres", "Dratini", "Dragonair", "Dragonite", "Mewtwo", "Mew"
-]
+async def announce_spawn(channel, spawn):
+    name = spawn["name"]
+    shiny = spawn.get("shiny", False)
+    title = f"✨ A wild shiny {name} appeared!" if shiny else f"A wild {name} appeared!"
+    embed = discord.Embed(
+        title=title,
+        description="Type **catch** to catch it!",
+        color=0xFFD700 if shiny else 0xFF69B4,
+    )
+    embed.set_image(url=spawn["sprite"])
+    embed.set_footer(text="Pokelarp • Gen 1" + (" • SHINY" if shiny else ""))
+    await channel.send(embed=embed)
 
-RARITY = {
-    "default": 100,
-    "Pikachu": 40, "Eevee": 40, "Growlithe": 40, "Vulpix": 40,
-    "Abra": 35, "Machop": 35, "Gastly": 35,
-    "Dratini": 15, "Lapras": 15, "Snorlax": 10,
-    "Articuno": 3, "Zapdos": 3, "Moltres": 3, "Mewtwo": 2, "Mew": 1,
-}
 
-RARE_POKEMON = {"Articuno", "Zapdos", "Moltres", "Mewtwo", "Mew", "Dratini", "Lapras", "Snorlax"}
+def create_spawn(channel_id, now=None):
+    now = now or datetime.now(timezone.utc)
+    dex, name = get_weighted_pokemon()
+    shiny = random.random() < SHINY_CHANCE
+    spawn = {
+        "name": name,
+        "dex": dex,
+        "sprite": get_sprite(dex, shiny),
+        "shiny": shiny,
+        "spawned_at": now.isoformat(),
+        "channel_id": channel_id,
+    }
+    storage.data.setdefault("spawns", {})[str(channel_id)] = spawn
+    rates = storage.spawn_channel_map().get(channel_id)
+    if rates:
+        wait = random.randint(rates["min"], rates["max"])
+        storage.schedule_next_spawn(channel_id, now + timedelta(minutes=wait))
+    storage.save()
+    return spawn
 
-EVO_MAP = {
-    "Pidgey": "Pidgeotto", "Rattata": "Raticate", "Caterpie": "Metapod", "Weedle": "Kakuna",
-    "Oddish": "Gloom", "Poliwag": "Poliwhirl", "Abra": "Kadabra", "Machop": "Machoke",
-    "Bellsprout": "Weepinbell", "Geodude": "Graveler", "Gastly": "Haunter", "Magikarp": "Gyarados",
-    "Spearow": "Fearow", "Ekans": "Arbok", "Sandshrew": "Sandslash", "Zubat": "Golbat",
-    "Paras": "Parasect", "Venonat": "Venomoth", "Diglett": "Dugtrio", "Meowth": "Persian",
-    "Psyduck": "Golduck", "Mankey": "Primeape", "Growlithe": "Arcanine", "Tentacool": "Tentacruel",
-    "Ponyta": "Rapidash", "Slowpoke": "Slowbro", "Magnemite": "Magneton", "Doduo": "Dodrio",
-    "Seel": "Dewgong", "Grimer": "Muk", "Shellder": "Cloyster", "Drowzee": "Hypno",
-    "Krabby": "Kingler", "Voltorb": "Electrode", "Exeggcute": "Exeggutor", "Cubone": "Marowak",
-    "Koffing": "Weezing", "Rhyhorn": "Rhydon", "Horsea": "Seadra", "Goldeen": "Seaking",
-    "Staryu": "Starmie", "Dratini": "Dragonair"
-}
-
-STARTERS = {
-    "1": {"name": "Bulbasaur", "dex": 1},
-    "2": {"name": "Charmander", "dex": 4},
-    "3": {"name": "Squirtle", "dex": 7}
-}
-
-def get_weighted_pokemon():
-    weights = [RARITY.get(name, RARITY["default"]) for name in POKEMON]
-    dex = random.choices(range(1, 152), weights=weights, k=1)[0]
-    return dex, POKEMON[dex - 1]
-
-def get_sprite(dex_num, shiny=False):
-    if shiny:
-        return f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/shiny/{dex_num}.png"
-    return f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{dex_num}.png"
-
-def load_data():
-    os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
-    if os.path.exists(DATA_PATH):
-        with open(DATA_PATH, "r") as f:
-            data = json.load(f)
-            data.setdefault("users", {})
-            data.setdefault("current_spawn", None)
-            return data
-    return {"users": {}, "current_spawn": None}
-
-def save_data(data):
-    os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
-    with open(DATA_PATH, "w") as f:
-        json.dump(data, f, indent=2)
-
-data = load_data()
-current_spawn = data.get("current_spawn")
 
 async def load_cogs():
-    for filename in os.listdir("./cogs"):
+    cog_dir = Path(__file__).resolve().parent / "cogs"
+    for filename in sorted(os.listdir(cog_dir)):
         if filename.endswith(".py") and filename != "__init__.py":
+            ext = f"cogs.{filename[:-3]}"
+            if ext in bot.extensions:
+                continue
             try:
-                await bot.load_extension(f"cogs.{filename[:-3]}")
+                await bot.load_extension(ext)
                 print(f"Loaded cog: {filename}")
-            except Exception as e:
-                print(f"Failed to load {filename}: {e}")
+            except Exception as exc:
+                print(f"Failed to load {filename}: {exc}")
+
 
 @bot.event
 async def on_ready():
+    global _booted
     print(f"Pokelarp is online as {bot.user}")
     await load_cogs()
-    try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} slash commands")
-    except Exception as e:
-        print(f"Failed to sync slash commands: {e}")
-    spawn_loop.start()
+    if not _booted:
+        _booted = True
+        try:
+            synced = await bot.tree.sync()
+            print(f"Synced {len(synced)} slash commands")
+        except Exception as exc:
+            print(f"Failed to sync slash commands: {exc}")
+        for channel_id, spawn in list(storage.data.get("spawns", {}).items()):
+            channel = bot.get_channel(int(channel_id))
+            if channel is None:
+                continue
+            try:
+                await announce_spawn(channel, spawn)
+            except discord.HTTPException as exc:
+                print(f"Could not reannounce spawn in {channel_id}: {exc}")
+    if not spawn_loop.is_running():
+        spawn_loop.start()
+
 
 @tasks.loop(minutes=1)
 async def spawn_loop():
-    global current_spawn
-    if current_spawn:
+    try:
+        await spawn_due_channels()
+    except Exception:
+        traceback.print_exc()
+
+
+async def spawn_due_channels():
+    now = datetime.now(timezone.utc)
+    spawns = storage.data.setdefault("spawns", {})
+    for channel_id, _rates in storage.spawn_channel_map().items():
+        if str(channel_id) in spawns:
+            continue
+        nxt = storage.next_spawn_at(channel_id)
+        if nxt is not None and now < nxt:
+            continue
+        channel = bot.get_channel(channel_id)
+        if channel is None:
+            if channel_id not in _missing_channels:
+                print(f"Spawn channel {channel_id} is not visible to the bot. Check the id and permissions.")
+                _missing_channels.add(channel_id)
+            continue
+        spawn = create_spawn(channel_id, now)
+        try:
+            await announce_spawn(channel, spawn)
+        except discord.HTTPException as exc:
+            print(f"Failed to announce in {channel_id}: {exc}")
+            spawns.pop(str(channel_id), None)
+            storage.data.get("next_spawn", {}).pop(str(channel_id), None)
+            storage.save()
+
+
+async def handle_catch(message, spawn):
+    user = storage.ensure_user(message.author.id)
+    if not user.get("has_starter", False) and user.get("catches_without_starter", 0) >= 2:
+        await message.channel.send(
+            f"**{message.author.display_name}**, you need to pick a starter first!\n"
+            "Use `!starter` to choose Bulbasaur, Charmander, or Squirtle before catching more."
+        )
         return
 
-    now = datetime.now(timezone.utc)
+    name = spawn["name"]
+    dex = spawn["dex"]
+    shiny = bool(spawn.get("shiny", False))
+    if user.get("shiny_charm"):
+        if not shiny and random.random() < CHARM_SHINY_CHANCE:
+            shiny = True
+        user["shiny_charm"] = False
 
-    for channel_id, rates in SPAWN_CHANNELS.items():
-        channel = bot.get_channel(channel_id)
-        if not channel:
-            continue
+    spawned_at = storage.parse_dt(spawn.get("spawned_at", datetime.now(timezone.utc).isoformat()))
+    catch_time = datetime.now(timezone.utc)
+    seconds = max(0, (catch_time - spawned_at).total_seconds())
+    mins = int(seconds // 60)
+    secs = round(seconds % 60, 1)
 
-        channel_last = data.get(f"last_spawn_{channel_id}")
-        if channel_last:
-            last_dt = datetime.fromisoformat(channel_last)
-            if last_dt.tzinfo is None:
-                last_dt = last_dt.replace(tzinfo=timezone.utc)
-            wait = timedelta(minutes=random.randint(rates["min"], rates["max"]))
-            if now < last_dt + wait:
-                continue
+    storage.data.get("spawns", {}).pop(str(message.channel.id), None)
+    mon, coins = grant_catch(user, name, dex, shiny)
+    storage.set_late_catch(message.channel.id, {"name": name, "dex": dex, "shiny": shiny}, catch_time)
+    storage.save()
 
-        dex, name = get_weighted_pokemon()
-        shiny = random.random() < SHINY_CHANCE
-        sprite = get_sprite(dex, shiny)
+    count = sum(1 for p in user["pokemon"] if p["name"] == name)
+    shiny_text = "✨ **SHINY** " if shiny else ""
+    time_text = f"{mins} minute{'s' if mins != 1 else ''} {secs} seconds" if mins else f"{secs} seconds"
+    desc = (
+        f"**{message.author.display_name}** caught {shiny_text}**{name}**!!!!1!\n"
+        f"You now have **{count}** of that type!!!\n"
+        f"this cutie was caught in {time_text}!!!!\n"
+        f"+{coins} coins"
+    )
+    if not user.get("has_starter", False):
+        remaining = 2 - user["catches_without_starter"]
+        if remaining > 0:
+            desc += f"\n\nYou still need to pick a starter with `!starter` ({remaining} free catch left)."
+        else:
+            desc += "\n\nThat's your last free catch! Use `!starter` before you can catch more."
 
-        current_spawn = {
-            "name": name,
-            "dex": dex,
-            "sprite": sprite,
-            "shiny": shiny,
-            "spawned_at": now.isoformat(),
-            "channel_id": channel_id
-        }
-        data["current_spawn"] = current_spawn
-        data[f"last_spawn_{channel_id}"] = now.isoformat()
-        save_data(data)
+    embed = discord.Embed(description=desc, color=0xFFD700 if shiny else 0xFF69B4)
+    embed.set_thumbnail(url=get_sprite(dex, shiny))
+    await message.channel.send(embed=embed)
 
-        title = f"✨ A wild shiny {name} appeared!" if shiny else f"A wild {name} appeared!"
-        embed = discord.Embed(
-            title=title,
-            description="Type **catch** to catch it!",
-            color=0xFFD700 if shiny else 0xFF69B4
-        )
-        embed.set_image(url=sprite)
-        embed.set_footer(text="Pokelarp • Gen 1" + (" • SHINY" if shiny else ""))
-        await channel.send(embed=embed)
-        break
 
 @bot.event
 async def on_message(message):
-    global current_spawn
     if message.author.bot:
         return
-
     content = message.content.lower().strip()
-
-    if content == "catch" and current_spawn:
-        user_id = str(message.author.id)
-        if user_id not in data["users"]:
-            data["users"][user_id] = {
-                "pokemon": [],
-                "levels": {},
-                "has_starter": False,
-                "catches_without_starter": 0,
-                "coins": 0,
-                "inventory": {}
-            }
-
-        user = data["users"][user_id]
-        user.setdefault("coins", 0)
-        user.setdefault("inventory", {})
-
-        if not user.get("has_starter", False) and user.get("catches_without_starter", 0) >= 2:
-            await message.channel.send(
-                f"**{message.author.display_name}**, you need to pick a starter first!\n"
-                f"Use `!starter` to choose Bulbasaur, Charmander, or Squirtle before catching more."
-            )
-            return
-
-        name = current_spawn["name"]
-        dex = current_spawn["dex"]
-        shiny = current_spawn.get("shiny", False)
-
-        if user.get("shiny_charm"):
-            if random.random() < CHARM_SHINY_CHANCE:
-                shiny = True
-            user["shiny_charm"] = False
-
-        sprite = get_sprite(dex, shiny)
-        spawned_at_str = current_spawn.get("spawned_at", datetime.now(timezone.utc).isoformat())
-        spawned_at = datetime.fromisoformat(spawned_at_str)
-        if spawned_at.tzinfo is None:
-            spawned_at = spawned_at.replace(tzinfo=timezone.utc)
-        catch_time = datetime.now(timezone.utc)
-        seconds = (catch_time - spawned_at).total_seconds()
-        mins = int(seconds // 60)
-        secs = round(seconds % 60, 1)
-
-        user["pokemon"].append({
-            "name": name,
-            "dex": dex,
-            "caught_at": catch_time.isoformat(),
-            "level": 1,
-            "shiny": shiny,
-            "nickname": None
-        })
-
-        if name not in user.get("levels", {}):
-            user.setdefault("levels", {})[name] = 1
-
-        count = sum(1 for p in user["pokemon"] if p["name"] == name)
-
-        if not user.get("has_starter", False):
-            user["catches_without_starter"] = user.get("catches_without_starter", 0) + 1
-
-        coins = 10 if name in RARE_POKEMON else 5
-        if shiny:
-            coins *= 2
-        user["coins"] += coins
-
-        shop_cog = bot.get_cog("Shop")
-        if shop_cog:
-            shop_cog.add_late_catch(message.channel.id, {
-                "name": name,
-                "dex": dex,
-                "shiny": shiny
-            })
-
-        shiny_text = "✨ **SHINY** " if shiny else ""
-        time_text = f"{mins} minute{'s' if mins != 1 else ''} {secs} seconds" if mins else f"{secs} seconds"
-
-        desc = (
-            f"**{message.author.display_name}** caught {shiny_text}**{name}**!!!!1!\n"
-            f"You now have **{count}** of that type!!!\n"
-            f"this cutie was caught in {time_text}!!!!\n"
-            f"+{coins} coins"
-        )
-
-        if not user.get("has_starter", False):
-            remaining = 2 - user["catches_without_starter"]
-            if remaining > 0:
-                desc += f"\n\nYou still need to pick a starter with `!starter` ({remaining} free catch left)."
-            else:
-                desc += "\n\nThat's your last free catch! Use `!starter` before you can catch more."
-
-        embed = discord.Embed(
-            description=desc,
-            color=0xFFD700 if shiny else 0xFF69B4
-        )
-        if sprite:
-            embed.set_thumbnail(url=sprite)
-
-        await message.channel.send(embed=embed)
-
-        current_spawn = None
-        data["current_spawn"] = None
-        save_data(data)
-
+    if content == "catch":
+        try:
+            spawns = storage.data.get("spawns", {})
+            spawn = spawns.get(str(message.channel.id))
+            if spawn:
+                await handle_catch(message, spawn)
+            elif spawns:
+                await message.channel.send("Nothing wild is up in this channel.")
+        except Exception:
+            traceback.print_exc()
+            await message.channel.send("Catch failed. Try again.")
     await bot.process_commands(message)
+
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("You don't have permission to do that.")
+        return
+    if isinstance(error, commands.MemberNotFound):
+        await ctx.send("Couldn't find that member. Mention them.")
+        return
+    if isinstance(error, commands.UserInputError):
+        await ctx.send("Couldn't read that. Check `/commands` for the usage.")
+        return
+    if isinstance(error, commands.CommandInvokeError):
+        error = error.original
+    traceback.print_exception(type(error), error, error.__traceback__)
+    await ctx.send("Something broke on that command. Try again in a second.")
+
 
 @bot.command()
 async def starter(ctx):
-    user_id = str(ctx.author.id)
-    if user_id not in data["users"]:
-        data["users"][user_id] = {
-            "pokemon": [],
-            "levels": {},
-            "has_starter": False,
-            "catches_without_starter": 0,
-            "coins": 0,
-            "inventory": {}
-        }
-
-    if data["users"][user_id].get("has_starter", False):
+    user = storage.ensure_user(ctx.author.id)
+    if user.get("has_starter", False):
         await ctx.send("You already picked a starter!")
         return
 
     embed = discord.Embed(
         title="Choose your starter!",
         description="Reply with **1**, **2**, or **3**",
-        color=0xFF69B4
+        color=0xFF69B4,
     )
     embed.add_field(name="1. Bulbasaur", value="🌱 Grass type", inline=False)
     embed.add_field(name="2. Charmander", value="🔥 Fire type", inline=False)
@@ -315,79 +250,49 @@ async def starter(ctx):
     embed.set_footer(text="You can only pick once!")
     await ctx.send(embed=embed)
 
-    def check(m):
-        return m.author == ctx.author and m.channel == ctx.channel and m.content in ["1", "2", "3"]
+    def check(reply):
+        return reply.author == ctx.author and reply.channel == ctx.channel and reply.content in ["1", "2", "3"]
 
     try:
         reply = await bot.wait_for("message", check=check, timeout=60)
-    except:
+    except TimeoutError:
         await ctx.send("Took too long! Try `!starter` again.")
         return
 
     choice = STARTERS[reply.content]
     name = choice["name"]
     dex = choice["dex"]
+    user["pokemon"].append(new_mon(name, dex, False, starter=True))
+    remember_species_level(user, name, 1)
+    user["has_starter"] = True
+    storage.save()
 
-    data["users"][user_id]["pokemon"].append({
-        "name": name,
-        "dex": dex,
-        "caught_at": datetime.now(timezone.utc).isoformat(),
-        "level": 1,
-        "shiny": False,
-        "nickname": None
-    })
-    data["users"][user_id].setdefault("levels", {})[name] = 1
-    data["users"][user_id]["has_starter"] = True
-    save_data(data)
-
-    sprite = get_sprite(dex)
     embed = discord.Embed(
         title=f"You chose {name}!",
         description=f"**{ctx.author.display_name}** got a level 1 **{name}** as their starter!",
-        color=0xFF69B4
+        color=0xFF69B4,
     )
-    embed.set_image(url=sprite)
+    embed.set_image(url=get_sprite(dex))
     await ctx.send(embed=embed)
+
 
 @bot.command()
 async def spawn(ctx):
     if not ctx.author.guild_permissions.administrator:
         await ctx.send("Only admins can force a spawn.")
         return
-
-    global current_spawn
-    if current_spawn:
-        await ctx.send("There's already a Pokémon spawned!")
+    if str(ctx.channel.id) in storage.data.get("spawns", {}):
+        await ctx.send("There's already a Pokémon spawned in this channel!")
         return
+    created = create_spawn(ctx.channel.id)
+    await announce_spawn(ctx.channel, created)
 
-    channel = ctx.channel
-    dex, name = get_weighted_pokemon()
-    shiny = random.random() < SHINY_CHANCE
-    sprite = get_sprite(dex, shiny)
-
-    now = datetime.now(timezone.utc)
-    current_spawn = {
-        "name": name,
-        "dex": dex,
-        "sprite": sprite,
-        "shiny": shiny,
-        "spawned_at": now.isoformat(),
-        "channel_id": channel.id
-    }
-    data["current_spawn"] = current_spawn
-    save_data(data)
-
-    title = f"✨ A wild shiny {name} appeared!" if shiny else f"A wild {name} appeared!"
-    embed = discord.Embed(title=title, description="Type **catch** to catch it!", color=0xFFD700 if shiny else 0xFF69B4)
-    embed.set_image(url=sprite)
-    await channel.send(embed=embed)
-    await ctx.send("Spawned!")
 
 @bot.command()
 async def balance(ctx):
-    fresh = load_data()
-    user = fresh["users"].get(str(ctx.author.id), {})
+    user = storage.data.get("users", {}).get(str(ctx.author.id), {})
     await ctx.send(f"You have **{user.get('coins', 0)}** coins.")
+
 
 @bot.command()
 async def give(ctx, amount: int = None, item: str = None):
@@ -397,93 +302,60 @@ async def give(ctx, amount: int = None, item: str = None):
     if amount is None:
         await ctx.send("Usage: `!give 500` or `!give 5 stone`")
         return
+    if amount < 1:
+        await ctx.send("Amount has to be at least 1.")
+        return
 
-    data = load_data()
-    user_id = str(ctx.author.id)
-    if user_id not in data["users"]:
-        data["users"][user_id] = {
-            "pokemon": [], "levels": {}, "has_starter": False,
-            "catches_without_starter": 0, "coins": 0, "inventory": {}
-        }
-    user = data["users"][user_id]
-    user.setdefault("coins", 0)
-    user.setdefault("inventory", {})
-
+    user = storage.ensure_user(ctx.author.id)
     if item:
         item = item.lower()
         user["inventory"][item] = user["inventory"].get(item, 0) + amount
-        save_data(data)
+        storage.save()
         await ctx.send(f"Gave yourself **{amount} {item}**(s).")
     else:
         user["coins"] += amount
-        save_data(data)
+        storage.save()
         await ctx.send(f"Gave yourself **{amount}** coins. Balance: {user['coins']}.")
+
 
 @bot.command()
 async def daily(ctx):
-    data = load_data()
-    user_id = str(ctx.author.id)
-    if user_id not in data["users"]:
-        data["users"][user_id] = {
-            "pokemon": [], "levels": {}, "has_starter": False,
-            "catches_without_starter": 0, "coins": 0, "inventory": {}
-        }
-    user = data["users"][user_id]
-    user.setdefault("coins", 0)
-
-    last = user.get("last_daily")
-    if last:
-        last_dt = datetime.fromisoformat(last)
-        if last_dt.tzinfo is None:
-            last_dt = last_dt.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) < last_dt + timedelta(hours=24):
-            hours = int((last_dt + timedelta(hours=24) - datetime.now(timezone.utc)).total_seconds() // 3600)
-            await ctx.send(f"Already claimed. Try again in ~{hours} hours.")
-            return
-
+    user = storage.ensure_user(ctx.author.id)
+    wait = storage.cooldown_remaining(user.get("last_daily"), 24)
+    if wait is not None:
+        await ctx.send(f"Already claimed. Try again in {storage.format_wait(wait)}.")
+        return
     user["coins"] += 25
     user["last_daily"] = datetime.now(timezone.utc).isoformat()
-    save_data(data)
+    storage.save()
     await ctx.send(f"+25 coins! You now have **{user['coins']}**.")
+
 
 @bot.command()
 async def evolve(ctx, *, name: str = None):
     if not name:
         await ctx.send("Usage: `!evolve <pokemon>`")
         return
-
-    data = load_data()
-    user_id = str(ctx.author.id)
-    if user_id not in data["users"] or not data["users"][user_id].get("pokemon"):
+    user = storage.data.get("users", {}).get(str(ctx.author.id))
+    if not user or not user.get("pokemon"):
         await ctx.send("You don't have any Pokémon.")
         return
-    user = data["users"][user_id]
 
-    last = user.get("last_evolve")
-    if last:
-        last_dt = datetime.fromisoformat(last)
-        if last_dt.tzinfo is None:
-            last_dt = last_dt.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) < last_dt + timedelta(hours=24):
-            hours = int((last_dt + timedelta(hours=24) - datetime.now(timezone.utc)).total_seconds() // 3600)
-            await ctx.send(f"Already used evolve. Try again in ~{hours} hours.")
-            return
-
-    target = None
-    for p in user["pokemon"]:
-        if p["name"].lower() == name.lower() or (p.get("nickname") and p["nickname"].lower() == name.lower()):
-            target = p
-            break
-
+    target = find_owned(user, name)
     if not target or target["name"] not in EVO_MAP:
-        await ctx.send("That Pokémon can't be evolved with !evolve.")
+        await ctx.send("That Pokémon can't be evolved with !evolve. Second stages need `!stone`.")
         return
 
-    old = target["name"]
-    target["name"] = EVO_MAP[old]
+    wait = storage.cooldown_remaining(user.get("last_evolve"), 24)
+    if wait is not None:
+        await ctx.send(f"Already used evolve. Try again in {storage.format_wait(wait)}.")
+        return
+
+    old = apply_evolution(user, target, EVO_MAP[target["name"]])
     user["last_evolve"] = datetime.now(timezone.utc).isoformat()
-    save_data(data)
+    storage.save()
     await ctx.send(f"**{old}** evolved into **{target['name']}**!")
+
 
 @bot.command()
 async def checkdaily(ctx, member: discord.Member = None):
@@ -491,16 +363,17 @@ async def checkdaily(ctx, member: discord.Member = None):
         await ctx.send("Admins only.")
         return
     target = member or ctx.author
-    data = load_data()
-    user = data["users"].get(str(target.id), {})
-    last_daily = user.get("last_daily", "never")
-    last_evolve = user.get("last_evolve", "never")
-    coins = user.get("coins", 0)
+    user = storage.data.get("users", {}).get(str(target.id), {})
     await ctx.send(
         f"**{target.display_name}**\n"
-        f"Last daily: `{last_daily}`\n"
-        f"Last evolve: `{last_evolve}`\n"
-        f"Coins: {coins}"
+        f"Last daily: `{user.get('last_daily', 'never')}`\n"
+        f"Last evolve: `{user.get('last_evolve', 'never')}`\n"
+        f"Coins: {user.get('coins', 0)}"
     )
 
-bot.run(TOKEN)
+
+if __name__ == "__main__":
+    if not TOKEN:
+        raise SystemExit("DISCORD_TOKEN is not set.")
+    storage.load()
+    bot.run(TOKEN)
