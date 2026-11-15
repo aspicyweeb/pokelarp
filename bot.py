@@ -39,6 +39,14 @@ _missing_channels = set()
 _booted = False
 
 
+def unlock_dex(user, dex):
+    if not dex:
+        return
+    user.setdefault("dex_caught", [])
+    if dex not in user["dex_caught"]:
+        user["dex_caught"].append(dex)
+
+
 async def announce_spawn(channel, spawn):
     name = spawn["name"]
     shiny = spawn.get("shiny", False)
@@ -170,6 +178,7 @@ async def handle_catch(message, spawn):
 
     storage.data.get("spawns", {}).pop(str(message.channel.id), None)
     mon, coins = grant_catch(user, name, dex, shiny)
+    unlock_dex(user, dex)
     storage.set_late_catch(message.channel.id, {"name": name, "dex": dex, "shiny": shiny}, catch_time)
     storage.save()
 
@@ -263,6 +272,7 @@ async def starter(ctx):
     name = choice["name"]
     dex = choice["dex"]
     user["pokemon"].append(new_mon(name, dex, False, starter=True))
+    unlock_dex(user, dex)
     remember_species_level(user, name, 1)
     user["has_starter"] = True
     storage.save()
@@ -352,6 +362,11 @@ async def evolve(ctx, *, name: str = None):
         return
 
     old = apply_evolution(user, target, EVO_MAP[target["name"]])
+    # Keep every dex number they've ever had
+    user.setdefault("dex_caught", [])
+    for p in user.get("pokemon", []):
+        if p.get("dex") and p["dex"] not in user["dex_caught"]:
+            user["dex_caught"].append(p["dex"])
     user["last_evolve"] = datetime.now(timezone.utc).isoformat()
     storage.save()
     await ctx.send(f"**{old}** evolved into **{target['name']}**!")
