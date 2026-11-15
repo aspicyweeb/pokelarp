@@ -34,11 +34,15 @@ class Pokedex(commands.Cog):
     @commands.command(name="pokedex", aliases=["dex"])
     async def pokedex_cmd(self, ctx):
         user = storage.data.get("users", {}).get(str(ctx.author.id))
-        if not user or not user.get("pokemon"):
+        if not user:
             await ctx.send("You haven't caught any Pokémon yet!")
             return
 
-        caught_dex = {p.get("dex") for p in user["pokemon"] if p.get("dex")}
+        # Use permanent dex_caught list (falls back to current pokemon for old users)
+        caught_dex = set(user.get("dex_caught", []))
+        if not caught_dex and user.get("pokemon"):
+            caught_dex = {p.get("dex") for p in user["pokemon"] if p.get("dex")}
+
         total = 151
         cols = 16
         size = 40
