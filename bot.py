@@ -263,7 +263,6 @@ async def starter(ctx):
     name = choice["name"]
     dex = choice["dex"]
     user["pokemon"].append(new_mon(name, dex, False, starter=True))
-    storage.unlock_dex(user, dex)
     remember_species_level(user, name, 1)
     user["has_starter"] = True
     storage.save()
@@ -371,28 +370,6 @@ async def checkdaily(ctx, member: discord.Member = None):
         f"Last evolve: `{user.get('last_evolve', 'never')}`\n"
         f"Coins: {user.get('coins', 0)}"
     )
-
-
-@bot.command()
-async def setdex(ctx, *, numbers: str = None):
-    if not ctx.author.guild_permissions.administrator:
-        await ctx.send("Admins only.")
-        return
-    user = storage.ensure_user(ctx.author.id)
-    if not numbers:
-        await ctx.send("Usage: `!setdex 1 2 4 5 7 ...` or `!setdex all`")
-        return
-    if numbers.lower() == "all":
-        user["dex_caught"] = list(range(1, 152))
-    else:
-        try:
-            dex_list = [int(x) for x in numbers.split()]
-            user["dex_caught"] = sorted(set(dex_list))
-        except ValueError:
-            await ctx.send("Numbers only, or `all`.")
-            return
-    storage.save()
-    await ctx.send(f"Set your dex to {len(user['dex_caught'])} entries.")
 
 
 if __name__ == "__main__":
