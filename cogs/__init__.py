@@ -522,25 +522,14 @@ def mon_level(user, mon):
     return user.get("levels", {}).get(mon["name"], 1)
 
 
-def unlock_dex(user, *dex_numbers):
-    if not dex_numbers:
-        return
-    caught = user.setdefault("dex_caught", [])
-    for dex in dex_numbers:
-        if dex and dex not in caught:
-            caught.append(dex)
-
-
 def apply_evolution(user, mon, new_name):
     old = mon["name"]
-    old_dex = mon.get("dex")
     level = mon_level(user, mon)
     mon["name"] = new_name
     mon["dex"] = NAME_TO_DEX[new_name]
     mon["level"] = level
     levels = user.setdefault("levels", {})
     levels[new_name] = max(levels.get(new_name, 1), level)
-    unlock_dex(user, old_dex, mon["dex"])
     return old
 
 
@@ -577,7 +566,6 @@ def grant_catch(user, name, dex, shiny):
     mon = new_mon(name, dex, shiny)
     user.setdefault("pokemon", []).append(mon)
     remember_species_level(user, name, mon["level"])
-    unlock_dex(user, dex)
     if not user.get("has_starter", False):
         user["catches_without_starter"] = user.get("catches_without_starter", 0) + 1
     coins = catch_coins(name, shiny)
