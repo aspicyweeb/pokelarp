@@ -38,14 +38,7 @@ class Pokedex(commands.Cog):
             await ctx.send("You haven't caught any Pokémon yet!")
             return
 
-        caught_dex = set(user.get("dex_caught", []))
-        if not caught_dex and user.get("pokemon"):
-            # one-time backfill for people who evolved before this change
-            caught_dex = {p.get("dex") for p in user["pokemon"] if p.get("dex")}
-            if caught_dex:
-                user["dex_caught"] = sorted(caught_dex)
-                storage.save()
-
+        caught_dex = {p.get("dex") for p in user["pokemon"] if p.get("dex")}
         total = 151
         cols = 16
         size = 40
