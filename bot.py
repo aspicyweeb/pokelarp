@@ -263,6 +263,7 @@ async def starter(ctx):
     name = choice["name"]
     dex = choice["dex"]
     user["pokemon"].append(new_mon(name, dex, False, starter=True))
+    storage.unlock_dex(user, dex)
     remember_species_level(user, name, 1)
     user["has_starter"] = True
     storage.save()
