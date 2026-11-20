@@ -2,11 +2,12 @@ import discord
 from discord.ext import commands
 
 import cogs as storage
-from cogs import find_owned
+from cogs import find_owned, note_dex, same_mon
 
 
 def _snapshot(mon):
     return {
+        "id": mon.get("id"),
         "name": mon["name"],
         "dex": mon.get("dex"),
         "shiny": bool(mon.get("shiny", False)),
@@ -15,10 +16,6 @@ def _snapshot(mon):
         "caught_at": mon.get("caught_at"),
         "starter": bool(mon.get("starter", False)),
     }
-
-
-def _same(mon, snap):
-    return mon.get("caught_at") == snap.get("caught_at") and mon.get("name") == snap.get("name")
 
 
 class Trade(commands.Cog):
@@ -119,8 +116,8 @@ class Trade(commands.Cog):
 
         user_a = storage.ensure_user(trade["a"])
         user_b = storage.ensure_user(trade["b"])
-        mon_a = storage.pop_pokemon(user_a, lambda mon: _same(mon, trade["offer_a"]))
-        mon_b = storage.pop_pokemon(user_b, lambda mon: _same(mon, trade["offer_b"]))
+        mon_a = storage.pop_pokemon(user_a, lambda mon: same_mon(mon, trade["offer_a"]))
+        mon_b = storage.pop_pokemon(user_b, lambda mon: same_mon(mon, trade["offer_b"]))
         if mon_a is None or mon_b is None:
             if mon_a is not None:
                 user_a["pokemon"].append(mon_a)
@@ -132,6 +129,8 @@ class Trade(commands.Cog):
             return
         user_a["pokemon"].append(mon_b)
         user_b["pokemon"].append(mon_a)
+        note_dex(user_a, mon_b.get("dex"))
+        note_dex(user_b, mon_a.get("dex"))
         storage.data.get("trades", {}).pop(trade_id, None)
         storage.save()
         await ctx.send(
