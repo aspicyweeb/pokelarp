@@ -179,7 +179,9 @@ RARE_POKEMON = {'Snorlax', 'Dratini', 'Zapdos', 'Mew', 'Mewtwo', 'Articuno', 'La
 
 EVO_MAP = {'Abra': 'Kadabra',
  'Bellsprout': 'Weepinbell',
+ 'Bulbasaur': 'Ivysaur',
  'Caterpie': 'Metapod',
+ 'Charmander': 'Charmeleon',
  'Cubone': 'Marowak',
  'Diglett': 'Dugtrio',
  'Doduo': 'Dodrio',
@@ -200,6 +202,8 @@ EVO_MAP = {'Abra': 'Kadabra',
  'Magnemite': 'Magneton',
  'Mankey': 'Primeape',
  'Meowth': 'Persian',
+ 'Nidoran♀': 'Nidorina',
+ 'Nidoran♂': 'Nidorino',
  'Oddish': 'Gloom',
  'Paras': 'Parasect',
  'Pidgey': 'Pidgeotto',
@@ -213,6 +217,7 @@ EVO_MAP = {'Abra': 'Kadabra',
  'Shellder': 'Cloyster',
  'Slowpoke': 'Slowbro',
  'Spearow': 'Fearow',
+ 'Squirtle': 'Wartortle',
  'Staryu': 'Starmie',
  'Tentacool': 'Tentacruel',
  'Venonat': 'Venomoth',
@@ -227,7 +232,10 @@ STARTERS = {'1': {'dex': 1, 'name': 'Bulbasaur'},
 # Paid stone evolutions, including second stages. Eevee's form is chosen in the command.
 STONE_EVOLUTIONS = {'Abra': 'Kadabra',
  'Bellsprout': 'Weepinbell',
+ 'Bulbasaur': 'Ivysaur',
  'Caterpie': 'Metapod',
+ 'Charmander': 'Charmeleon',
+ 'Charmeleon': 'Charizard',
  'Clefairy': 'Clefable',
  'Cubone': 'Marowak',
  'Diglett': 'Dugtrio',
@@ -247,6 +255,7 @@ STONE_EVOLUTIONS = {'Abra': 'Kadabra',
  'Growlithe': 'Arcanine',
  'Haunter': 'Gengar',
  'Horsea': 'Seadra',
+ 'Ivysaur': 'Venusaur',
  'Jigglypuff': 'Wigglytuff',
  'Kabuto': 'Kabutops',
  'Kadabra': 'Alakazam',
@@ -281,11 +290,13 @@ STONE_EVOLUTIONS = {'Abra': 'Kadabra',
  'Shellder': 'Cloyster',
  'Slowpoke': 'Slowbro',
  'Spearow': 'Fearow',
+ 'Squirtle': 'Wartortle',
  'Staryu': 'Starmie',
  'Tentacool': 'Tentacruel',
  'Venonat': 'Venomoth',
  'Voltorb': 'Electrode',
  'Vulpix': 'Ninetales',
+ 'Wartortle': 'Blastoise',
  'Weedle': 'Kakuna',
  'Weepinbell': 'Victreebel',
  'Zubat': 'Golbat'}
@@ -524,10 +535,14 @@ def mon_level(user, mon):
 
 def apply_evolution(user, mon, new_name):
     old = mon["name"]
+    old_dex = mon.get("dex")
+    if old_dex:
+        note_dex(user, old_dex)
     level = mon_level(user, mon)
     mon["name"] = new_name
     mon["dex"] = NAME_TO_DEX[new_name]
     mon["level"] = level
+    note_dex(user, mon["dex"])
     levels = user.setdefault("levels", {})
     levels[new_name] = max(levels.get(new_name, 1), level)
     return old
@@ -544,6 +559,7 @@ def new_mon(name, dex, shiny, level=1, starter=False, caught_at=None):
     from datetime import datetime, timezone
 
     mon = {
+        "id": uuid.uuid4().hex,
         "name": name,
         "dex": dex,
         "caught_at": caught_at or datetime.now(timezone.utc).isoformat(),
@@ -561,22 +577,111 @@ def remember_species_level(user, name, level):
     levels[name] = max(levels.get(name, 1), level)
 
 
+def note_dex(user, dex):
+    if dex is None:
+        return
+    try:
+        dex = int(dex)
+    except (TypeError, ValueError):
+        return
+    dexes = user.setdefault("dex", [])
+    if dex not in dexes:
+        dexes.append(dex)
+
+
+def caught_dex_ids(user):
+    found = set()
+    for raw in user.get("dex") or []:
+        try:
+            found.add(int(raw))
+        except (TypeError, ValueError):
+            continue
+    for mon in user.get("pokemon") or []:
+        if isinstance(mon, dict) and mon.get("dex"):
+            try:
+                found.add(int(mon["dex"]))
+            except (TypeError, ValueError):
+                continue
+    return found
+
+
+def apply_shiny_charm(user, shiny, roll=None):
+    """Charm upgrades a non-shiny catch. A natural shiny does not use it up."""
+    if not user.get("shiny_charm"):
+        return bool(shiny)
+    if shiny:
+        return True
+    user["shiny_charm"] = False
+    chance = random.random() if roll is None else roll
+    return chance < CHARM_SHINY_CHANCE
+
+
+def stone_target(user, text):
+    """Resolve `!stone` text to (mon, evolved_name, error)."""
+    text = " ".join(text.strip().split())
+    parts = text.split()
+    if parts and parts[-1].lower() in EEVEE_FORMS:
+        head = " ".join(parts[:-1]).strip()
+        if head:
+            mon = find_owned(user, head)
+            if mon is not None and mon["name"] == "Eevee":
+                return mon, EEVEE_FORMS[parts[-1].lower()], None
+    mon = find_owned(user, text)
+    if mon is None:
+        return None, None, f"You don't have a {text}."
+    if mon["name"] == "Eevee":
+        return mon, None, "Eevee needs a form: `!stone eevee vaporeon`, `jolteon`, or `flareon`."
+    new_name = STONE_EVOLUTIONS.get(mon["name"])
+    if not new_name:
+        return mon, None, f"**{mon['name']}** can't evolve with a stone."
+    return mon, new_name, None
+
+
+def same_mon(mon, snap):
+    if not mon or not snap:
+        return False
+    if snap.get("id") and mon.get("id"):
+        return mon["id"] == snap["id"]
+    return mon.get("caught_at") == snap.get("caught_at") and mon.get("name") == snap.get("name")
+
+
 def grant_catch(user, name, dex, shiny):
     """Add a caught pokemon and its coins. Mutates user in place."""
     mon = new_mon(name, dex, shiny)
     user.setdefault("pokemon", []).append(mon)
     remember_species_level(user, name, mon["level"])
+    note_dex(user, dex)
     if not user.get("has_starter", False):
         user["catches_without_starter"] = user.get("catches_without_starter", 0) + 1
     coins = catch_coins(name, shiny)
     user["coins"] = user.get("coins", 0) + coins
+    user["caught"] = user.get("caught", len(user["pokemon"]) - 1) + 1
     return mon, coins
 
 import json
 import os
+import uuid
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
-DATA_PATH = os.getenv("DATA_PATH", "/data/pokelarp_data.json")
+
+def default_data_path():
+    env = os.getenv("DATA_PATH")
+    if env:
+        return env
+    preferred_dir = "/data"
+    try:
+        os.makedirs(preferred_dir, exist_ok=True)
+        probe = os.path.join(preferred_dir, ".pokelarp-write-test")
+        with open(probe, "a", encoding="utf-8") as handle:
+            handle.write("")
+        os.remove(probe)
+        return os.path.join(preferred_dir, "pokelarp_data.json")
+    except OSError:
+        return str(Path(__file__).resolve().parent.parent / "pokelarp_data.json")
+
+
+DATA_PATH = default_data_path()
 
 data = {
     "users": {},
@@ -636,7 +741,8 @@ def load():
     data = loaded
     seeded = _seed_channels(save_now=False)
     migrated = _migrate_last_spawns()
-    if seeded or migrated or legacy:
+    migrated_users = _migrate_users()
+    if seeded or migrated or legacy or migrated_users:
         save()
     return data
 
@@ -664,6 +770,70 @@ def _seed_channels(save_now=True):
     if save_now:
         save()
     return True
+
+
+def _migrate_users():
+    """Give every mon a stable id, remember species already owned, and unlock stuck starter picks."""
+    changed = False
+    users = data.get("users", {})
+    for user in users.values():
+        if not isinstance(user, dict):
+            continue
+        if user.pop("picking_starter", None):
+            changed = True
+        pokemon = user.setdefault("pokemon", [])
+        user.setdefault("inventory", {})
+        user.setdefault("levels", {})
+        dexes = []
+        seen = set()
+        for raw in user.get("dex") or []:
+            try:
+                number = int(raw)
+            except (TypeError, ValueError):
+                changed = True
+                continue
+            if number not in seen:
+                seen.add(number)
+                dexes.append(number)
+        if dexes != user.get("dex"):
+            changed = True
+        user["dex"] = dexes
+        for mon in pokemon:
+            if not isinstance(mon, dict):
+                continue
+            if not mon.get("id"):
+                mon["id"] = uuid.uuid4().hex
+                changed = True
+            dex = mon.get("dex")
+            if dex is None and mon.get("name") in NAME_TO_DEX:
+                mon["dex"] = NAME_TO_DEX[mon["name"]]
+                dex = mon["dex"]
+                changed = True
+            try:
+                number = int(dex) if dex is not None else None
+            except (TypeError, ValueError):
+                number = None
+            if number and number not in seen:
+                dexes.append(number)
+                seen.add(number)
+                changed = True
+    for trade in data.get("trades", {}).values():
+        if not isinstance(trade, dict):
+            continue
+        for side in ("a", "b"):
+            offer = trade.get(f"offer_{side}")
+            uid = trade.get(side)
+            if not isinstance(offer, dict) or offer.get("id") or not uid:
+                continue
+            owner = users.get(str(uid), {})
+            for mon in owner.get("pokemon", []):
+                if not isinstance(mon, dict) or not mon.get("id"):
+                    continue
+                if mon.get("caught_at") == offer.get("caught_at") and mon.get("name") == offer.get("name"):
+                    offer["id"] = mon["id"]
+                    changed = True
+                    break
+    return changed
 
 
 def _migrate_last_spawns():
@@ -730,6 +900,7 @@ def ensure_user(user_id):
             "catches_without_starter": 0,
             "coins": 0,
             "inventory": {},
+            "dex": [],
         }
     user = users[user_id]
     user.setdefault("pokemon", [])
@@ -738,6 +909,7 @@ def ensure_user(user_id):
     user.setdefault("catches_without_starter", 0)
     user.setdefault("coins", 0)
     user.setdefault("inventory", {})
+    user.setdefault("dex", [])
     return user
 
 
@@ -804,14 +976,18 @@ def get_late_catch(channel_id):
 
 
 def mon_offered(mon):
+    mid = mon.get("id")
     caught_at = mon.get("caught_at")
     for trade in data.get("trades", {}).values():
         for key in ("offer_a", "offer_b"):
             offer = trade.get(key)
             if not offer:
                 continue
-            if offer.get("caught_at") == caught_at and offer.get("name") == mon.get("name"):
+            if mid and offer.get("id") and offer["id"] == mid:
                 return True
+            if not mid or not offer.get("id"):
+                if offer.get("caught_at") == caught_at and offer.get("name") == mon.get("name"):
+                    return True
     return False
 
 
