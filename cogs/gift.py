@@ -2,7 +2,16 @@ import discord
 from discord.ext import commands
 
 import cogs as storage
-from cogs import find_owned, note_dex
+from cogs import NAME_TO_DEX, find_owned, note_dex, remember_species_level
+
+
+def keep_in_dex(user, mon):
+    if not mon:
+        return
+    note_dex(user, mon.get("dex"))
+    note_dex(user, NAME_TO_DEX.get(mon.get("name")))
+    if mon.get("name"):
+        remember_species_level(user, mon["name"], mon.get("level") or 1)
 
 
 class Gift(commands.Cog):
@@ -34,9 +43,10 @@ class Gift(commands.Cog):
         if removed is None:
             await ctx.send(f"You don't have a {name}.")
             return
+        keep_in_dex(giver, removed)
         receiver = storage.ensure_user(member.id)
         receiver["pokemon"].append(removed)
-        note_dex(receiver, removed.get("dex"))
+        keep_in_dex(receiver, removed)
         storage.save()
         await ctx.send(
             f"**{ctx.author.display_name}** gifted **{removed['name']}** to **{member.display_name}**."
