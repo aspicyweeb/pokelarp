@@ -30,26 +30,20 @@ class Bag(commands.Cog):
         groups = {}
         order = []
         for mon in pokemon:
-            key = mon["name"]
+            key = (mon["name"], bool(mon.get("shiny")))
             if key not in groups:
-                groups[key] = {"count": 0, "shiny": 0, "levels": [], "nick": None}
+                groups[key] = {"count": 0, "levels": [], "nick": None}
                 order.append(key)
             group = groups[key]
             group["count"] += 1
-            if mon.get("shiny"):
-                group["shiny"] += 1
             group["levels"].append(mon_level(user, mon))
             if mon.get("nickname") and not group["nick"]:
                 group["nick"] = mon["nickname"]
         return groups, order
 
-    def _format(self, name, group):
-        if group["shiny"] >= group["count"] and group["shiny"]:
-            shiny = "✨ "
-        elif group["shiny"]:
-            shiny = f"✨×{group['shiny']} "
-        else:
-            shiny = ""
+    def _format(self, key, group):
+        name, shiny_flag = key
+        shiny = "✨ " if shiny_flag else ""
         nick = f" ({group['nick']})" if group["nick"] else ""
         count = f" ×{group['count']}" if group["count"] > 1 else ""
         levels = group["levels"] or [1]
@@ -103,7 +97,7 @@ class Bag(commands.Cog):
             lines = []
             groups, order = self._group(user, pokemon)
             for name in order:
-                if target_type in TYPES.get(name, []):
+                if target_type in TYPES.get(name[0], []):
                     lines.append(self._format(name, groups[name]))
             title = f"{ctx.author.display_name}'s {target_type} Types"
             pages = chunk_lines(lines) if lines else [f"No {target_type} types yet!"]
@@ -129,10 +123,22 @@ class Bag(commands.Cog):
 
         level = mon_level(user, found)
         shiny = found.get("shiny", False)
+        same = [mon for mon in user.get("pokemon", []) if mon.get("name") == found["name"]]
+        regulars = [mon for mon in same if not mon.get("shiny")]
+        shinies = [mon for mon in same if mon.get("shiny")]
+        if regulars and shiny:
+            found = regulars[0]
+            level = mon_level(user, found)
+            shiny = False
         nick = found.get("nickname")
         display = nick if nick else found["name"]
         types = ", ".join(TYPES.get(found["name"], ["???"]))
-        owned = sum(1 for mon in user.get("pokemon", []) if mon["name"] == found["name"])
+        parts = []
+        if regulars:
+            parts.append(f"{len(regulars)} regular")
+        if shinies:
+            parts.append(f"{len(shinies)} shiny")
+        owned = ", ".join(parts) if parts else "0"
 
         embed = discord.Embed(
             title=f"{'✨ ' if shiny else ''}{display}",
