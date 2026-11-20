@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 
 import cogs as storage
-from cogs import find_owned
+from cogs import find_owned, note_dex
 
 
 class Gift(commands.Cog):
@@ -36,6 +36,7 @@ class Gift(commands.Cog):
             return
         receiver = storage.ensure_user(member.id)
         receiver["pokemon"].append(removed)
+        note_dex(receiver, removed.get("dex"))
         storage.save()
         await ctx.send(
             f"**{ctx.author.display_name}** gifted **{removed['name']}** to **{member.display_name}**."
