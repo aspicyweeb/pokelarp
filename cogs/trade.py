@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 
 import cogs as storage
-from cogs import find_owned, note_dex, same_mon
+from cogs import NAME_TO_DEX, find_owned, note_dex, remember_species_level, same_mon
 
 
 def _snapshot(mon):
@@ -16,6 +16,15 @@ def _snapshot(mon):
         "caught_at": mon.get("caught_at"),
         "starter": bool(mon.get("starter", False)),
     }
+
+
+def keep_in_dex(user, mon):
+    if not mon:
+        return
+    note_dex(user, mon.get("dex"))
+    note_dex(user, NAME_TO_DEX.get(mon.get("name")))
+    if mon.get("name"):
+        remember_species_level(user, mon["name"], mon.get("level") or 1)
 
 
 class Trade(commands.Cog):
@@ -127,10 +136,12 @@ class Trade(commands.Cog):
             storage.save()
             await ctx.send("Trade cancelled — one of the offered Pokémon isn't there anymore.")
             return
+        keep_in_dex(user_a, mon_a)
+        keep_in_dex(user_b, mon_b)
         user_a["pokemon"].append(mon_b)
         user_b["pokemon"].append(mon_a)
-        note_dex(user_a, mon_b.get("dex"))
-        note_dex(user_b, mon_a.get("dex"))
+        keep_in_dex(user_a, mon_b)
+        keep_in_dex(user_b, mon_a)
         storage.data.get("trades", {}).pop(trade_id, None)
         storage.save()
         await ctx.send(
