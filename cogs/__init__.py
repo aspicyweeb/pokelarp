@@ -5,6 +5,12 @@ catches, dailies, gifts, and trades. Keep this file. bot.py and the other
 cogs import it.
 """
 import random
+import time
+import json
+import os
+import uuid
+from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
 POKEMON = ['Bulbasaur',
  'Ivysaur',
@@ -229,7 +235,6 @@ STARTERS = {'1': {'dex': 1, 'name': 'Bulbasaur'},
  '2': {'dex': 4, 'name': 'Charmander'},
  '3': {'dex': 7, 'name': 'Squirtle'}}
 
-# Paid stone evolutions, including second stages. Eevee's form is chosen in the command.
 STONE_EVOLUTIONS = {'Abra': 'Kadabra',
  'Bellsprout': 'Weepinbell',
  'Bulbasaur': 'Ivysaur',
@@ -548,6 +553,46 @@ def apply_evolution(user, mon, new_name):
     return old
 
 
+def xp_for_level(level):
+    return 50 + (level * 20)
+
+
+def add_xp(user, mon, amount):
+    """Returns (leveled, evolved_to). evolved_to is the new name if it evolved at 25, else None."""
+    if not mon:
+        return False, None
+    mon.setdefault("xp", 0)
+    mon["xp"] += amount
+    leveled = False
+    evolved_to = None
+    while mon["xp"] >= xp_for_level(mon_level(user, mon)):
+        mon["xp"] -= xp_for_level(mon_level(user, mon))
+        new_level = mon_level(user, mon) + 1
+        mon["level"] = new_level
+        remember_species_level(user, mon["name"], new_level)
+        leveled = True
+        if new_level >= 25 and evolved_to is None:
+            evo = EVO_MAP.get(mon["name"]) or STONE_EVOLUTIONS.get(mon["name"])
+            if evo and evo != mon["name"]:
+                apply_evolution(user, mon, evo)
+                evolved_to = evo
+    return leveled, evolved_to
+
+
+def set_grinder(user, mon):
+    user["grinder"] = mon.get("id") if mon else None
+
+
+def get_grinder(user):
+    gid = user.get("grinder")
+    if not gid:
+        return None
+    for mon in user.get("pokemon", []):
+        if mon.get("id") == gid:
+            return mon
+    return None
+
+
 def catch_coins(name, shiny):
     coins = 10 if name in RARE_POKEMON else 5
     if shiny:
@@ -657,12 +702,6 @@ def grant_catch(user, name, dex, shiny):
     user["coins"] = user.get("coins", 0) + coins
     user["caught"] = user.get("caught", len(user["pokemon"]) - 1) + 1
     return mon, coins
-
-import json
-import os
-import uuid
-from pathlib import Path
-from datetime import datetime, timedelta, timezone
 
 
 def default_data_path():
