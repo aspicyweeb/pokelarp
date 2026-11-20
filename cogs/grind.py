@@ -33,23 +33,6 @@ class Grind(commands.Cog):
         storage.save()
         await ctx.send(f"Now grinding **{mon['name']}**.")
 
-    @commands.command(aliases=["lvl", "level"])
-    async def levels(self, ctx, member: discord.Member = None):
-        target = member or ctx.author
-        user = storage.ensure_user(target.id)
-        mons = user.get("pokemon", [])
-        if not mons:
-            await ctx.send("No Pokémon.")
-            return
-        sorted_mons = sorted(mons, key=lambda m: storage.mon_level(user, m), reverse=True)[:8]
-        lines = [f"**{m['name']}** — Lv.{storage.mon_level(user, m)}" for m in sorted_mons]
-        embed = discord.Embed(
-            title=f"{target.display_name}'s Levels",
-            description="\n".join(lines),
-            color=0xFF69B4,
-        )
-        await ctx.send(embed=embed)
-
 
 async def setup(bot):
     await bot.add_cog(Grind(bot))
