@@ -32,22 +32,30 @@ class Bag(commands.Cog):
         for mon in pokemon:
             key = mon["name"]
             if key not in groups:
-                groups[key] = {"count": 0, "shiny": 0, "level": 1, "nick": None}
+                groups[key] = {"count": 0, "shiny": 0, "levels": [], "nick": None}
                 order.append(key)
             group = groups[key]
             group["count"] += 1
             if mon.get("shiny"):
                 group["shiny"] += 1
-            group["level"] = max(group["level"], mon_level(user, mon))
+            group["levels"].append(mon_level(user, mon))
             if mon.get("nickname") and not group["nick"]:
                 group["nick"] = mon["nickname"]
         return groups, order
 
     def _format(self, name, group):
-        shiny = "✨ " if group["shiny"] else ""
+        if group["shiny"] >= group["count"] and group["shiny"]:
+            shiny = "✨ "
+        elif group["shiny"]:
+            shiny = f"✨×{group['shiny']} "
+        else:
+            shiny = ""
         nick = f" ({group['nick']})" if group["nick"] else ""
         count = f" ×{group['count']}" if group["count"] > 1 else ""
-        return f"{shiny}**{name}**{nick}{count} — Lv.{group['level']}"
+        levels = group["levels"] or [1]
+        lo, hi = min(levels), max(levels)
+        level = f"Lv.{lo}" if lo == hi else f"Lv.{lo}–{hi}"
+        return f"{shiny}**{name}**{nick}{count} — {level}"
 
     @commands.command()
     async def bag(self, ctx, filter: str = None):
