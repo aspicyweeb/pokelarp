@@ -1,20 +1,17 @@
-import random
-from datetime import datetime, timedelta, timezone
-
 import discord
 from discord.ext import commands
+from datetime import datetime, timedelta, timezone
 
 import cogs as storage
 from cogs import (
     CHARM_SHINY_CHANCE,
-    EEVEE_FORMS,
-    STONE_EVOLUTIONS,
     apply_evolution,
-    canonical_species,
+    apply_shiny_charm,
     find_owned,
     get_sprite,
     grant_catch,
     mon_level,
+    stone_target,
 )
 
 PRICES = {"ball": 50, "greatball": 100, "candy": 75, "stone": 150, "charm": 200}
@@ -75,6 +72,9 @@ class Shop(commands.Cog):
         if mon is None:
             await ctx.send(f"You don't have a {name}.")
             return
+        if storage.mon_offered(mon):
+            await ctx.send("That Pokémon is offered in a trade. `!cancel` the trade first.")
+            return
         if not self._take_item(user, "candy"):
             await ctx.send("You don't have a Rare Candy. `!buy candy`")
             return
@@ -94,30 +94,13 @@ class Shop(commands.Cog):
             await ctx.send("You don't have any Pokémon.")
             return
 
-        parts = name.split()
-        form = None
-        query = name
-        if len(parts) >= 2 and canonical_species(parts[0]) == "Eevee":
-            form = EEVEE_FORMS.get(parts[-1].lower())
-            query = " ".join(parts[:-1])
-            if form is None:
-                await ctx.send("Eevee needs a form: `!stone eevee vaporeon`, `jolteon`, or `flareon`.")
-                return
-
-        mon = find_owned(user, query)
-        if mon is None:
-            await ctx.send(f"You don't have a {query}.")
+        mon, new_name, error = stone_target(user, name)
+        if error:
+            await ctx.send(error)
             return
-        if mon["name"] == "Eevee":
-            if form is None:
-                await ctx.send("Eevee needs a form: `!stone eevee vaporeon`, `jolteon`, or `flareon`.")
-                return
-            new_name = form
-        else:
-            new_name = STONE_EVOLUTIONS.get(mon["name"])
-            if not new_name:
-                await ctx.send(f"**{mon['name']}** can't evolve with a stone.")
-                return
+        if storage.mon_offered(mon):
+            await ctx.send("That Pokémon is offered in a trade. `!cancel` the trade first.")
+            return
 
         if not self._take_item(user, "stone"):
             await ctx.send("You don't have an Evolution Stone. `!buy stone`")
@@ -137,7 +120,10 @@ class Shop(commands.Cog):
             return
         user["shiny_charm"] = True
         storage.save()
-        await ctx.send(f"Shiny Charm is on. Your next catch is {int(CHARM_SHINY_CHANCE * 100)}% shiny (if it isn't already).")
+        await ctx.send(
+            f"Shiny Charm is on. If your next catch isn't already shiny, "
+            f"it's {int(CHARM_SHINY_CHANCE * 100)}% to turn shiny. A natural shiny won't use the charm."
+        )
 
     async def _late(self, ctx, window, item, label):
         user = storage.ensure_user(ctx.author.id)
@@ -145,6 +131,10 @@ class Shop(commands.Cog):
             await ctx.send("Pick a starter with `!starter` before you can catch more.")
             return
         found = storage.get_late_catch(ctx.channel.id)
+        if not found:
+            parent_id = getattr(ctx.channel, "parent_id", None)
+            if parent_id:
+                found = storage.get_late_catch(parent_id)
         if not found:
             await ctx.send(f"No recent catch in this channel to use a {label} on.")
             return
@@ -156,11 +146,7 @@ class Shop(commands.Cog):
             await ctx.send(f"You don't have a {label}. Buy one with `!buy {item}`.")
             return
 
-        shiny = bool(pokemon.get("shiny", False))
-        if user.get("shiny_charm"):
-            if not shiny and random.random() < CHARM_SHINY_CHANCE:
-                shiny = True
-            user["shiny_charm"] = False
+        shiny = apply_shiny_charm(user, bool(pokemon.get("shiny", False)))
 
         mon, coins = grant_catch(user, pokemon["name"], pokemon["dex"], shiny)
         storage.save()
