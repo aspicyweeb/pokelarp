@@ -7,6 +7,7 @@ and the other prefix commands never fire.
 """
 import os
 import random
+import time
 import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -29,6 +30,8 @@ from cogs import (
     new_mon,
     note_dex,
     remember_species_level,
+    add_xp,
+    get_grinder,
 )
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -210,6 +213,19 @@ async def handle_catch(channel, author, spawn_channel_id, spawn):
 
     storage.data.get("spawns", {}).pop(str(spawn_channel_id), None)
     _, coins = grant_catch(user, name, dex, shiny)
+
+    # Bonus XP to grinder on catch
+    grinder = storage.get_grinder(user)
+    if grinder:
+        leveled, evolved = storage.add_xp(user, grinder, random.randint(15, 30))
+        if evolved:
+            embed = discord.Embed(
+                description=f"**{author.display_name}**’s **{grinder['name']}** is evolving into **{evolved}**!",
+                color=0xFFD700
+            )
+            embed.set_image(url=storage.get_sprite(storage.NAME_TO_DEX[evolved]))
+            await channel.send(embed=embed)
+
     storage.set_late_catch(spawn_channel_id, {"name": name, "dex": dex, "shiny": shiny}, catch_time)
     storage.save()
 
@@ -274,6 +290,28 @@ async def on_message(message):
     content = message.content.lower().strip()
     if content == "catch":
         await reply_catch(message.channel, message.author)
+        return
+
+    # Grind XP from any non-command message (5s cooldown)
+    if not content.startswith("!"):
+        user = storage.ensure_user(message.author.id)
+        grinder = storage.get_grinder(user)
+        if grinder:
+            now = time.time()
+            last = user.get("last_grind", 0)
+            if now - last >= 5:
+                xp = random.randint(2, 5)
+                leveled, evolved = storage.add_xp(user, grinder, xp)
+                user["last_grind"] = now
+                storage.save()
+                if evolved:
+                    embed = discord.Embed(
+                        description=f"**{message.author.display_name}**’s **{grinder['name']}** is evolving into **{evolved}**!",
+                        color=0xFFD700
+                    )
+                    embed.set_image(url=storage.get_sprite(storage.NAME_TO_DEX[evolved]))
+                    await message.channel.send(embed=embed)
+
     await bot.process_commands(message)
 
 
