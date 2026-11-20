@@ -7,8 +7,23 @@ from discord.ext import commands
 from PIL import Image, ImageEnhance
 
 import cogs as storage
+from cogs import NAME_TO_DEX, caught_dex_ids
 
 _sprite_cache = {}
+
+
+def seen_dex(user):
+    """Species they have now, plus ones they already evolved or released."""
+    found = caught_dex_ids(user)
+    names = set(user.get("levels") or {})
+    for mon in user.get("pokemon") or []:
+        if isinstance(mon, dict) and mon.get("name"):
+            names.add(mon["name"])
+    for name in names:
+        number = NAME_TO_DEX.get(name)
+        if number:
+            found.add(number)
+    return found
 
 
 class Pokedex(commands.Cog):
@@ -34,11 +49,10 @@ class Pokedex(commands.Cog):
     @commands.command(name="pokedex", aliases=["dex"])
     async def pokedex_cmd(self, ctx):
         user = storage.data.get("users", {}).get(str(ctx.author.id))
-        if not user or not user.get("pokemon"):
+        caught_dex = seen_dex(user or {})
+        if not caught_dex:
             await ctx.send("You haven't caught any Pokémon yet!")
             return
-
-        caught_dex = {p.get("dex") for p in user["pokemon"] if p.get("dex")}
         total = 151
         cols = 16
         size = 40
@@ -68,7 +82,7 @@ class Pokedex(commands.Cog):
             image = sprite
             if dex not in caught_dex:
                 image = ImageEnhance.Color(sprite).enhance(0)
-            image = image.resize((size, size), Image.Resampling.LANCZOS)
+            image = image.resize((size, size), getattr(getattr(Image, "Resampling", Image), "LANCZOS"))
             panel.paste(image, (x, y), image)
 
         buf = io.BytesIO()
